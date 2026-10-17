@@ -14,6 +14,14 @@ Request files cannot contain ground-truth labels, actor IDs, or tactics. An expl
 
 `simulation.py` verifies the manifest, source boundaries, row counts, labels, tactics, and identity/actor isolation. Original train and test populations remain intact, preserving chronological evaluation and held-out tactics. Only source validation is divided into linked-component-isolated early-stopping and calibration groups. BIN context is computed causally within each original source population before validation is subdivided. At least two positive and two all-negative validation components are needed. Saved `simulation_evaluation.json` reports per-tactic test recall and legitimate-bulk false positives; these synthetic results do not establish accuracy on real buyers.
 
+## HTTP authorization and replay
+
+`datathon_authorization.authorization.main` exposes a FastAPI app factory and the default app. Startup loads the ensemble from `SCALPER_MODEL_DIR` (default `artifacts/ticket_model`); missing/incompatible models stop startup. One locked session shares causal card, BIN, and linkage context across all merchants. The request model accepts generator IDs and omitted event IDs, rejects explicit non-ticket scope and truth fields, and normalizes timezone-aware times and decimal USD payments through the same adapter used by offline scoring.
+
+Expected validation failures, duplicates, and late timestamps are rejected before updating state. Unexpected inference failure makes the app unready until restart, avoiding continued scoring from uncertain context. State is local to one worker and resets on restart. Simulated declines still enter attempt history; they do not represent confirmed purchases.
+
+The response includes the detector's probability, confidence, evidence, calibrated review flag, and advisory action. APPROVE/REVIEW/DECLINE maps the default merchant action policy to a simulated authorization response; it does not reuse the review threshold as a bank decision or enforce an invented four-ticket limit. `datathon_authorization.replay` sends only validated requests, saves responses, then optionally joins exact transaction IDs to a separate truth file locally. API integration tests compare HTTP and offline probabilities on generated streams. See the [authorization guide](../../datathon_authorization/README.md) for commands and state boundaries.
+
 ## Train with team-supplied data
 
 Run commands from the repository root after the [README setup](../README.md). These paths describe files the team supplies; they are not bundled with the project.
@@ -90,7 +98,7 @@ Untouched test components supply per-order precision/recall/F1, ranking and cali
 ## Verify the software
 
 ```bash
-.venv/bin/python -m pip install -e './detection[dev]'
+.venv/bin/python -m pip install -e './detection[dev,api]'
 .venv/bin/python -m pytest -q
 ```
 

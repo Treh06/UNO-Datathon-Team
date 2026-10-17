@@ -1,6 +1,6 @@
 # Keep the integrated project off main
 
-The combined project uses `feature/data-generator`. It brings the original `feat/ticket-scalper-detection` work into the generator branch, with the detector in `detection/` and the generator in `generation_and_testing/`. The generator's original README is preserved.
+The combined project uses `feature/data-generator`. It includes `feat/ticket-scalper-detection` and `Feat/datathon_authorization`, with the detector in `detection/`, the generator in `generation_and_testing/`, and the HTTP API in `datathon_authorization/`. The generator's original README is preserved.
 
 Run Git commands from the repository root. Check the branch and files before committing:
 
@@ -21,7 +21,7 @@ Review and save source, tests, configuration, and documentation:
 
 ```bash
 git diff
-git add .gitignore README.md pytest.ini detection generation_and_testing
+git add .gitignore README.md pytest.ini detection generation_and_testing datathon_authorization
 git diff --cached --stat
 git diff --cached
 git commit -m "Update integrated ticket-scalper workflow"

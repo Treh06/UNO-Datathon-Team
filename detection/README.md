@@ -11,6 +11,7 @@ A Python prototype that scores **ticket purchase orders** for patterns associate
 - [What the project does](#what-the-project-does)
 - [Install and check the project](#install-and-check-the-project)
 - [Use the companion simulator](#use-the-companion-simulator)
+- [Score through the authorization API](#score-through-the-authorization-api)
 - [Prepare your ticket data](#prepare-your-ticket-data)
 - [Train and evaluate a model](#train-and-evaluate-a-model)
 - [Score orders and create a review report](#score-orders-and-create-a-review-report)
@@ -72,7 +73,7 @@ On macOS or Linux:
 ```bash
 python3 --version
 python3 -m venv .venv
-.venv/bin/python -m pip install -e './detection[dev]'
+.venv/bin/python -m pip install -e './detection[dev,api]'
 ```
 
 This installs the project, PyTorch, NumPy, pandas, scikit-learn, and pytest. The explicit `.venv/bin/` paths keep every command in the same Python environment; activation is optional.
@@ -81,7 +82,7 @@ For Windows PowerShell, create/install with:
 
 ```powershell
 py -3 -m venv .venv
-.venv\Scripts\python.exe -m pip install -e './detection[dev]'
+.venv\Scripts\python.exe -m pip install -e './detection[dev,api]'
 ```
 
 For the remaining commands, replace `.venv/bin/python` with `.venv\Scripts\python.exe` and `.venv/bin/scalper-detector` with `.venv\Scripts\scalper-detector.exe`. Run multiline Bash commands as single lines in PowerShell.
@@ -93,7 +94,7 @@ For the remaining commands, replace `.venv/bin/python` with `.venv\Scripts\pytho
 .venv/bin/python -m pytest -q
 ```
 
-Tests construct temporary inputs and models themselves; they do not need a dataset in the repository. The root test command covers both the detector and generator, including their integration. Some ONNX checks skip when those optional packages are absent.
+Tests construct temporary inputs and models themselves; they do not need a dataset in the repository. For all three components, install `./detection[dev,api]` and run the root test command. It covers the detector, generator, replay, and authorization API. Some ONNX checks skip when those optional packages are absent.
 
 **What works before you add data:** command help, the generator, and automated tests. Training requires generated or team-supplied orders. Prediction, model evaluation, benchmarking, and export require a trained model.
 
@@ -120,6 +121,19 @@ The [repository quick start](../README.md) connects your friend's simulator to t
 Choose a new or empty simulation output directory; the generator refuses to overwrite existing data. `train-simulation` joins each request to its separate truth record by `txn_id` for offline learning. It preserves the generator's chronological training and test populations, including held-out tactics. Only source validation is divided into early-stopping and calibration groups, with linked cards kept together. It writes the usual model outputs plus `simulation_evaluation.json`, which reports test recall by tactic and false positives on legitimate bulk buying.
 
 Scoring reads requests alone. Actor IDs, tactic names, and labels never enter model features. Amounts retain the simulator's USD units. Unknown event allocations and release times remain unknown; the simulator's `quantity_cap` is not a per-buyer allocation. Synthetic results measure the simulator's assumptions and require validation on real ticket traffic.
+
+## Score through the authorization API
+
+The [repository quick start](../README.md) also starts the [authorization API](../datathon_authorization/README.md) and replays the generator's test requests through HTTP. Install `./detection[dev,api]`, train `artifacts/ticket_model`, then launch from the repository root:
+
+```bash
+.venv/bin/python -m uvicorn datathon_authorization.authorization.main:app \
+  --host 127.0.0.1 --port 8000 --workers 1
+```
+
+The API loads the saved ensemble once and scores one shared chronological ticket stream across merchants. It accepts the generator's optional event IDs and its original request schema, plus explicit ticket categories and decimal-string amounts from the authorization samples. It rejects non-ticket scope and truth fields. Its simulated status follows default merchant action policy; the review flag uses the calibrated review threshold. Accepted requests enter attempt history, including simulated declines. State resets on restart, and duplicate or late requests are rejected before updating history.
+
+Use a fresh server before replaying an independent split or the same IDs. The CLI and HTTP paths use the same saved preprocessing, model, calibration, and evidence logic. Follow the root guide for offline-only truth joins and test-dataset evaluation.
 
 ## Prepare your ticket data
 
@@ -341,7 +355,7 @@ The tests create temporary synthetic fixtures as part of their assertions. They 
 To include ONNX verification:
 
 ```bash
-.venv/bin/python -m pip install -e './detection[dev,deploy]'
+.venv/bin/python -m pip install -e './detection[dev,api,deploy]'
 .venv/bin/python -m pytest -q
 ```
 
@@ -363,7 +377,7 @@ Choose orders in your data that illustrate ordinary fan purchases, family/group 
 | 4. Review workflow | Run `report` and open `review_report.csv`. | Later evidence can prioritize review without rewriting historical scores. |
 | 5. Evidence and limits | Show `metrics.json` and the completed test output. | Precision/recall, legitimate-buyer false positives, and remaining real-world/hardware validation. |
 
-Until you generate or supply data and train a model, present the architecture and automated tests; live scoring needs those inputs. The simulator quick start provides a request-scoring demonstration without preparing separate single-order files. Describe the current system as a local scoring prototype. The CLI simulates the transaction path; it is not a deployed payment API or a verified Telum service.
+Until you generate or supply data and train a model, present the architecture and automated tests; live scoring needs those inputs. The root quick start provides an HTTP request-scoring demonstration without preparing separate single-order files. Describe the current system as a local scoring prototype. The authorization API simulates decisions; it does not contact a payment network or provide a verified Telum service.
 
 ## Benchmark and export
 
@@ -422,6 +436,7 @@ The export includes a manifest and CPU numerical checks. Feature state, the fore
 | `detection/tests/`, `generation_and_testing/tests/` | Automated regression and integration tests. |
 | `detection/examples/merchant_policy.json` | Editable merchant policy configuration. |
 | `generation_and_testing/` | Companion simulator, its configuration, and its preserved original README. |
+| `datathon_authorization/` | Trained-model HTTP authorization API, replay CLI, samples, and integration tests. |
 | `data/` | Your local input data; ignored by Git. |
 | `artifacts/ticket_model/` | Created by training: model files, `metrics.json`, `order_splits.csv`, and held-out `test_orders.csv`. Ignored by Git. |
 | `artifacts/presentation/` | Your scoring, review, evaluation, and benchmark outputs. Ignored by Git. |
@@ -437,7 +452,7 @@ git status --short
 The integrated project is on `feature/data-generator`; the original detector branch is `feat/ticket-scalper-detection`. On the integration branch, review and save source/documentation changes with:
 
 ```bash
-git add .gitignore README.md pytest.ini detection generation_and_testing
+git add .gitignore README.md pytest.ini detection generation_and_testing datathon_authorization
 git diff --cached --stat
 git commit -m "Update integrated ticket-scalper workflow"
 git push -u origin feature/data-generator

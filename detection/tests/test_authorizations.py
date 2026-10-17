@@ -1,6 +1,7 @@
 """Schema conversion and strict separation of requests from simulator truth."""
 
 from copy import deepcopy
+from decimal import Decimal
 import importlib.util
 import json
 from pathlib import Path
@@ -74,6 +75,32 @@ def test_unknown_source_fields_cannot_shadow_canonical_fields(payload):
     payload.update(card_id="wrong", card_bin="wrong", order_id="wrong", shipping_hash="wrong", category="wrong",
                    final_spend=999999, detection_result={"tactic": "future"})
     pd.testing.assert_frame_equal(pd.DataFrame([authorization_to_order(payload)]), pd.DataFrame([expected]))
+
+
+@pytest.mark.parametrize("category", ["sneakers", "cards", "collectibles", "other", None, 1])
+def test_explicit_non_ticket_authorization_category_is_rejected(payload, category):
+    payload["product_category"] = category
+    with pytest.raises(ValueError, match="product_category='tickets'"):
+        authorization_to_order(payload)
+
+
+def test_explicit_ticket_category_preserves_existing_generator_features(payload):
+    expected = authorization_to_order(payload)
+    payload["product_category"] = "tickets"
+    pd.testing.assert_frame_equal(pd.DataFrame([authorization_to_order(payload)]), pd.DataFrame([expected]))
+
+
+@pytest.mark.parametrize("amount", ["90.50", Decimal("90.50")])
+def test_authorization_decimal_amounts_keep_usd_units(payload, amount):
+    payload["amount"] = amount
+    assert authorization_to_order(payload)["amount"] == 90.5
+
+
+@pytest.mark.parametrize("amount", ["NaN", "Infinity", "-Infinity", "0", "-10", "not-money", "1e9999"])
+def test_invalid_decimal_payment_strings_rejected(payload, amount):
+    payload["amount"] = amount
+    with pytest.raises(ValueError, match="amount"):
+        authorization_to_order(payload)
 
 
 @pytest.mark.parametrize("field", ["actor_id", "tactic", "is_scalper"])

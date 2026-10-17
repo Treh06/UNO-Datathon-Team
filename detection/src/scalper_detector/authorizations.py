@@ -8,6 +8,7 @@ Actor/tactic metadata stays in a separately requested ground-truth dataframe.
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 import json
 import math
 from numbers import Real
@@ -81,6 +82,10 @@ def _authorization_fields(payload: dict) -> dict:
     forbidden = _TRUTH_FIELDS.intersection(payload)
     if forbidden:
         raise ValueError(f"Ground-truth fields are forbidden in authorization requests: {', '.join(sorted(forbidden))}.")
+    if "product_category" in payload:
+        category = payload["product_category"]
+        if not isinstance(category, str) or category.strip().lower() != "tickets":
+            raise ValueError("Only product_category='tickets' authorizations are supported.")
     currency = payload.get("currency")
     if not isinstance(currency, str) or currency.strip().upper() != "USD":
         raise ValueError("Only explicit USD authorizations are supported; no currency conversion is performed.")
@@ -104,6 +109,16 @@ def _authorization_fields(payload: dict) -> dict:
         if key == "quantity" and payload.get(key) is None:
             continue
         value = payload.get(key)
+        # The HTTP schema and its original sample represent Decimal payments
+        # as JSON strings. Keep USD units and reject nonfinite/overflow values.
+        if key == "amount" and isinstance(value, (str, Decimal)):
+            try:
+                decimal_amount = Decimal(value)
+                if not decimal_amount.is_finite():
+                    raise ValueError("amount must be a finite payment.")
+                value = float(decimal_amount)
+            except (InvalidOperation, OverflowError) as exc:
+                raise ValueError("amount must be a finite payment number or decimal string.") from exc
         if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
             raise ValueError(f"{key} must be a finite JSON number.")
         if value <= 0 or (key == "quantity" and value % 1 != 0):
