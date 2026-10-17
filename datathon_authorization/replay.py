@@ -12,13 +12,16 @@ import json
 import math
 from numbers import Real
 from pathlib import Path
+from typing import Any, NoReturn
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-
 _SCALPER_TACTICS = (
-    "shared_address_ring", "max_qty_bulk", "card_testing", "cross_merchant_sweep",
+    "shared_address_ring",
+    "max_qty_bulk",
+    "card_testing",
+    "cross_merchant_sweep",
 )
 
 
@@ -26,8 +29,8 @@ class ReplayError(RuntimeError):
     """A replay failed after zero or more successfully saved responses."""
 
 
-def _unique_object(pairs: list[tuple[str, object]]) -> dict:
-    result = {}
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
             raise ValueError(f"Duplicate JSON field {key!r}.")
@@ -35,7 +38,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
-def _invalid_constant(value: str) -> None:
+def _invalid_constant(value: str) -> NoReturn:
     raise ValueError(f"Nonfinite JSON value {value!r} is not permitted.")
 
 
@@ -43,7 +46,7 @@ def _decode(text: str) -> object:
     return json.loads(text, object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
 
 
-def read_requests(path: str | Path) -> list[dict]:
+def read_requests(path: str | Path) -> list[dict[str, Any]]:
     """Validate every JSON-array/JSONL request before the first network call.
 
     Preserve input order, including equal timestamps; reject duplicate IDs,
@@ -73,7 +76,9 @@ def read_requests(path: str | Path) -> list[dict]:
     if not isinstance(records, list) or not records:
         raise ValueError(f"{location}: expected a nonempty JSON array or JSONL request file.")
 
-    requests, seen, previous = [], set(), None
+    requests: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    previous = None
     for number, record in enumerate(records, 1):
         try:
             if not isinstance(record, dict):
@@ -97,28 +102,45 @@ def read_requests(path: str | Path) -> list[dict]:
 
 def _endpoint(url: str) -> str:
     parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError("--url must be an HTTP(S) server URL without a query or fragment.")
     base = url.rstrip("/")
     return base if parsed.path.rstrip("/").endswith("/authorize") else base + "/authorize"
 
 
-def _model_values(response: dict) -> tuple[float, bool, float]:
-    probability, flag, threshold = (
-        response.get("scalper_probability"), response.get("flagged_for_review"),
-        response.get("decision_threshold"),
-    )
+def _model_values(response: dict[str, Any]) -> tuple[float, bool, float]:
+    """Validate and extract the server's calibrated score and review decision."""
+    probability = response.get("scalper_probability")
+    flag = response.get("flagged_for_review")
+    threshold = response.get("decision_threshold")
     for name, value in (("scalper_probability", probability), ("decision_threshold", threshold)):
-        if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value) or not 0 <= value <= 1:
-            raise ValueError(f"API response requires a finite {name} in [0, 1]. Use a model-backed server.")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, Real)
+            or not math.isfinite(value)
+            or not 0 <= value <= 1
+        ):
+            raise ValueError(
+                f"API response requires a finite {name} in [0, 1]. Use a model-backed server."
+            )
     if not isinstance(flag, bool):
         raise ValueError("API response requires boolean flagged_for_review.")
     return float(probability), flag, float(threshold)
 
 
-def _post(endpoint: str, payload: dict, timeout: float) -> dict:
-    request = Request(endpoint, data=json.dumps(payload, allow_nan=False).encode("utf-8"),
-                      headers={"Content-Type": "application/json"}, method="POST")
+def _post(endpoint: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+    """Submit one request once and require a matching model-backed response."""
+    request = Request(
+        endpoint,
+        data=json.dumps(payload, allow_nan=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
         with urlopen(request, timeout=timeout) as response:
             if response.status != 200:
@@ -126,8 +148,12 @@ def _post(endpoint: str, payload: dict, timeout: float) -> dict:
             result = _decode(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read(2000).decode("utf-8", errors="replace")
-        hint = (" Restart the server to reset its in-memory session before replaying "
-                "duplicate IDs or an independent source split." if exc.code == 409 else "")
+        hint = (
+            " Restart the server to reset its in-memory session before replaying "
+            "duplicate IDs or an independent source split."
+            if exc.code == 409
+            else ""
+        )
         raise ReplayError(f"HTTP {exc.code} for {payload['txn_id']}: {detail}.{hint}") from exc
     except (URLError, TimeoutError, OSError) as exc:
         raise ReplayError(f"Network failure for {payload['txn_id']}: {exc}") from exc
@@ -143,10 +169,20 @@ def _post(endpoint: str, payload: dict, timeout: float) -> dict:
     return result
 
 
-def replay_requests(input_path: str | Path, output_path: str | Path, *,
-                    url: str = "http://127.0.0.1:8000", timeout: float = 10.0) -> list[dict]:
+def replay_requests(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    url: str = "http://127.0.0.1:8000",
+    timeout: float = 10.0,
+) -> list[dict[str, Any]]:
     """Save each successful response; stop immediately on any request failure."""
-    if isinstance(timeout, bool) or not isinstance(timeout, Real) or not math.isfinite(timeout) or timeout <= 0:
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, Real)
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
         raise ValueError("timeout must be positive and finite.")
     source, destination = Path(input_path), Path(output_path)
     if source.resolve() == destination.resolve():
@@ -160,29 +196,41 @@ def replay_requests(input_path: str | Path, output_path: str | Path, *,
             try:
                 response = _post(endpoint, payload, float(timeout))
             except ReplayError as exc:
-                raise ReplayError(f"{exc} Stopped after {len(saved)} saved response(s) in {destination}; "
-                                  "no later requests were sent.") from exc
+                raise ReplayError(
+                    f"{exc} Stopped after {len(saved)} saved response(s) in {destination}; "
+                    "no later requests were sent."
+                ) from exc
             handle.write(json.dumps(response, allow_nan=False) + "\n")
             handle.flush()
             saved.append(response)
     return saved
 
 
-def evaluate_responses(responses: list[dict], ground_truth_path: str | Path, *,
-                       requests_path: str | Path | None = None) -> dict:
+def evaluate_responses(
+    responses: list[dict[str, Any]],
+    ground_truth_path: str | Path,
+    *,
+    requests_path: str | Path | None = None,
+) -> dict[str, Any]:
     """Join explicit offline truth by exact txn_id; use actual server flags."""
     from scalper_detector.authorizations import read_ground_truth
     from scalper_detector.metrics import binary_metrics
 
     ids = [response.get("txn_id") for response in responses]
-    if not ids or any(not isinstance(txn_id, str) or not txn_id for txn_id in ids) or len(set(ids)) != len(ids):
+    if (
+        not ids
+        or any(not isinstance(txn_id, str) or not txn_id for txn_id in ids)
+        or len(set(ids)) != len(ids)
+    ):
         raise ValueError("Responses must have nonempty, unique txn_id values.")
     values = [_model_values(response) for response in responses]
     truth = read_ground_truth(ground_truth_path).set_index("txn_id")
     missing, extra = set(ids) - set(truth.index), set(truth.index) - set(ids)
     if missing or extra:
-        raise ValueError(f"Ground truth must match saved responses exactly: {len(missing)} missing label(s), "
-                         f"{len(extra)} extra txn_id(s).")
+        raise ValueError(
+            f"Ground truth must match saved responses exactly: {len(missing)} missing label(s), "
+            f"{len(extra)} extra txn_id(s)."
+        )
     truth = truth.loc[ids]
     labels = truth["is_scalper"].to_numpy()
     probabilities = [value[0] for value in values]
@@ -197,37 +245,53 @@ def evaluate_responses(responses: list[dict], ground_truth_path: str | Path, *,
         mask = (truth.tactic.eq(tactic) & truth.is_scalper.eq(1)).to_numpy()
         count = int(mask.sum())
         flagged = sum(flag for flag, selected in zip(flags, mask) if selected)
-        per_tactic[tactic] = {"orders": count, "flagged": flagged,
-                              "recall": flagged / count if count else None}
+        per_tactic[tactic] = {
+            "orders": count,
+            "flagged": flagged,
+            "recall": flagged / count if count else None,
+        }
     bulk = (truth.tactic.eq("legit_bulk") & truth.is_scalper.eq(0)).to_numpy()
     bulk_count = int(bulk.sum())
     bulk_flagged = sum(flag for flag, selected in zip(flags, bulk) if selected)
     source = Path(requests_path) if requests_path is not None else None
+    source_split = (
+        source.parent.name
+        if source is not None and source.parent.name in {"train", "validation", "test"}
+        else None
+    )
     return {
         "offline_only": True,
         "requests_source": str(source) if source is not None else None,
-        "source_split": source.parent.name if source is not None and source.parent.name in {"train", "validation", "test"} else None,
+        "source_split": source_split,
         "ground_truth_source": str(ground_truth_path),
         "decision_basis": "Actual API flagged_for_review values; probability metrics use scalper_probability",
         "decision_thresholds": sorted({value[2] for value in values}),
         "overall": overall,
         "per_tactic": per_tactic,
-        "legit_bulk": {"orders": bulk_count, "flagged": bulk_flagged,
-                       "false_positive_rate": bulk_flagged / bulk_count if bulk_count else None},
+        "legit_bulk": {
+            "orders": bulk_count,
+            "flagged": bulk_flagged,
+            "false_positive_rate": bulk_flagged / bulk_count if bulk_count else None,
+        },
         "interpretation": "Offline synthetic campaign-label evaluation; these results do not establish real-world ticket-scalper accuracy.",
     }
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Replay a validated request file and optionally evaluate its saved responses."""
     parser = argparse.ArgumentParser(
         description="Replay ticket requests into a model-backed local authorization API.",
         epilog="Start a fresh single-worker server for each independent source split; replay preserves input event time.",
     )
-    parser.add_argument("--input", default=str(Path(__file__).parent / "authorization/sample_transactions.json"))
+    parser.add_argument(
+        "--input", default=str(Path(__file__).parent / "authorization/sample_transactions.json")
+    )
     parser.add_argument("--output", default="artifacts/api_responses.jsonl")
     parser.add_argument("--url", default="http://127.0.0.1:8000")
     parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--ground-truth", help="Offline evaluation only, read after all responses are saved")
+    parser.add_argument(
+        "--ground-truth", help="Offline evaluation only, read after all responses are saved"
+    )
     parser.add_argument("--evaluation-output")
     args = parser.parse_args(argv)
     if bool(args.ground_truth) != bool(args.evaluation_output):
@@ -240,15 +304,21 @@ def main(argv: list[str] | None = None) -> None:
         if args.evaluation_output:
             outputs.append(Path(args.evaluation_output).resolve())
         if len(set(outputs)) != len(outputs) or inputs.intersection(outputs):
-            raise ValueError("Response/evaluation outputs must be distinct and must not overwrite input or ground truth.")
+            raise ValueError(
+                "Response/evaluation outputs must be distinct and must not overwrite input or ground truth."
+            )
         responses = replay_requests(args.input, args.output, url=args.url, timeout=args.timeout)
         print(f"Saved {len(responses)} API responses to {args.output}")
         if args.ground_truth:
             evaluation = evaluate_responses(responses, args.ground_truth, requests_path=args.input)
             destination = Path(args.evaluation_output)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(json.dumps(evaluation, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-            print(f"Saved offline evaluation to {destination}; synthetic results are not real-world validation.")
+            destination.write_text(
+                json.dumps(evaluation, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+            )
+            print(
+                f"Saved offline evaluation to {destination}; synthetic results are not real-world validation."
+            )
     except (ValueError, OSError, ReplayError, ImportError) as exc:
         parser.exit(2, f"Error: {exc}\n")
 

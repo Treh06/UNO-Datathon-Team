@@ -19,8 +19,14 @@ def trained_example(tmp_path_factory):
     orders = generate_synthetic_data(60, seed=19)
     directory = tmp_path_factory.mktemp("trained_payment_detector")
     config = TrainConfig(
-        epochs=2, hidden_size=8, num_layers=1, dropout=0.0,
-        sequence_length=5, batch_size=128, threads=1, seed=19,
+        epochs=2,
+        hidden_size=8,
+        num_layers=1,
+        dropout=0.0,
+        sequence_length=5,
+        batch_size=128,
+        threads=1,
+        seed=19,
     )
     report = train_model(orders, directory, config, data_source="synthetic", verbose=False)
     return orders, directory, report
@@ -28,7 +34,14 @@ def trained_example(tmp_path_factory):
 
 def test_training_artifacts_and_exact_reload_predictions(trained_example):
     orders, directory, report = trained_example
-    expected = {"model.pt", "tree.json", "metadata.json", "metrics.json", "order_splits.csv", "test_orders.csv"}
+    expected = {
+        "model.pt",
+        "tree.json",
+        "metadata.json",
+        "metrics.json",
+        "order_splits.csv",
+        "test_orders.csv",
+    }
     assert expected <= {path.name for path in directory.iterdir()}
     metadata = json.loads((directory / "metadata.json").read_text())
     assert metadata["format_version"] == 3
@@ -48,8 +61,10 @@ def test_training_artifacts_and_exact_reload_predictions(trained_example):
     assert set(predictions.order_id) == set(orders.order_id)
     for name in ("scalper_probability", "neural_probability", "tree_probability"):
         assert predictions[name].between(0, 1).all()
-    np.testing.assert_array_equal(predictions.flagged_for_review,
-                                  predictions.scalper_probability >= metadata["decision_threshold"])
+    np.testing.assert_array_equal(
+        predictions.flagged_for_review,
+        predictions.scalper_probability >= metadata["decision_threshold"],
+    )
     assert predictions.merchant_decision_required.all()
     assert predictions.detection_scope.eq("ticket_scalping").all()
     assert predictions.category.eq("tickets").all()
@@ -90,11 +105,19 @@ def test_split_csv_is_order_complete_and_keeps_linked_components_together(traine
     assert splits.groupby("card_id").split.nunique().eq(1).all()
     assert splits.groupby("split_group").split.nunique().eq(1).all()
     components = linked_components(validate_events(orders))
-    assert splits.assign(component=splits.card_id.map(components)).groupby("component").split.nunique().eq(1).all()
+    assert (
+        splits.assign(component=splits.card_id.map(components))
+        .groupby("component")
+        .split.nunique()
+        .eq(1)
+        .all()
+    )
     for name, part in splits.groupby("split"):
         assert report["split_counts"][name] == {
-            "cards": int(part.card_id.nunique()), "orders": len(part),
-            "linked_components": int(part.split_group.nunique()), "positive_orders": int(part[LABEL].sum()),
+            "cards": int(part.card_id.nunique()),
+            "orders": len(part),
+            "linked_components": int(part.split_group.nunique()),
+            "positive_orders": int(part[LABEL].sum()),
         }
     test_orders = read_events(directory / "test_orders.csv", require_labels=True)
     assert set(test_orders.order_id) == set(splits.loc[splits.split == "test", "order_id"])
@@ -128,13 +151,20 @@ def test_calibration_is_separate_from_model_selection_and_test(tmp_path, monkeyp
     monkeypatch.setattr(pipeline, "_logits", traced_logits)
     monkeypatch.setattr(pipeline, "fit_temperature", traced_temperature)
     monkeypatch.setattr(pipeline, "select_threshold", traced_threshold)
-    config = TrainConfig(epochs=1, hidden_size=4, num_layers=1, threads=1, target_precision=0.9, seed=11)
+    config = TrainConfig(
+        epochs=1, hidden_size=4, num_layers=1, threads=1, target_precision=0.9, seed=11
+    )
     report = pipeline.train_model(orders, tmp_path, config, data_source="synthetic", verbose=False)
     splits = pd.read_csv(tmp_path / "order_splits.csv")
     ids = {name: frozenset(part.order_id) for name, part in splits.groupby("split")}
     assert temperature_partitions == [ids["calibration"]] * 3
     assert threshold_partitions == [ids["calibration"]]
-    assert logit_partitions == [ids["validation"], ids["calibration"], ids["validation"], ids["test"]]
+    assert logit_partitions == [
+        ids["validation"],
+        ids["calibration"],
+        ids["validation"],
+        ids["test"],
+    ]
     selection = report["threshold_selection"]
     assert selection["source"] == "calibration"
     assert selection["test_labels_used"] is False
@@ -155,7 +185,9 @@ def test_non_ticket_orders_rejected_by_batch_and_online_scoring(trained_example,
 
 
 @pytest.mark.parametrize("override", [{"format_version": 2}, {"task": "marketplace_scalping"}])
-def test_legacy_or_wrong_scope_model_rejected_before_weights_load(trained_example, tmp_path, override):
+def test_legacy_or_wrong_scope_model_rejected_before_weights_load(
+    trained_example, tmp_path, override
+):
     _, directory, _ = trained_example
     metadata = json.loads((directory / "metadata.json").read_text())
     metadata.update(override)
@@ -165,7 +197,9 @@ def test_legacy_or_wrong_scope_model_rejected_before_weights_load(trained_exampl
 
 
 @pytest.mark.parametrize("mismatch", ["feature_name", "feature_order", "input_size"])
-def test_incompatible_feature_contract_rejected_before_weights_load(trained_example, tmp_path, mismatch):
+def test_incompatible_feature_contract_rejected_before_weights_load(
+    trained_example, tmp_path, mismatch
+):
     _, directory, _ = trained_example
     metadata = json.loads((directory / "metadata.json").read_text())
     if mismatch == "feature_name":
@@ -199,7 +233,9 @@ def test_json_forest_preserves_saved_inference_state(trained_example):
     assert detector.forest.to_dict() == state
     restored = PaymentForest.from_dict(state)
     _, features = detector.preprocessor.transform(orders)
-    np.testing.assert_array_equal(detector.forest.predict_proba(features), restored.predict_proba(features))
+    np.testing.assert_array_equal(
+        detector.forest.predict_proba(features), restored.predict_proba(features)
+    )
     assert len(state["trees"]) == 48
 
 
@@ -210,8 +246,16 @@ def test_future_orders_cannot_change_past_order_scores(trained_example):
     prefix_predictions = detector.predict(prefix).set_index("order_id")
     full_predictions = detector.predict(orders).set_index("order_id").loc[prefix_predictions.index]
     for name in ("scalper_probability", "neural_probability", "tree_probability", "risk_score"):
-        np.testing.assert_allclose(prefix_predictions[name], full_predictions[name], atol=1e-7, rtol=1e-6)
-    for name in ("confidence_tier", "reason_codes", "reason_details", "recommended_action", "events_observed"):
+        np.testing.assert_allclose(
+            prefix_predictions[name], full_predictions[name], atol=1e-7, rtol=1e-6
+        )
+    for name in (
+        "confidence_tier",
+        "reason_codes",
+        "reason_details",
+        "recommended_action",
+        "events_observed",
+    ):
         assert prefix_predictions[name].tolist() == full_predictions[name].tolist()
 
 
@@ -221,11 +265,20 @@ def test_stateful_order_scoring_matches_batch_prefixes(trained_example):
     prefix = orders.iloc[:100].drop(columns=LABEL)
     expected = detector.predict(prefix).set_index("order_id")
     session = detector.new_session()
-    actual = pd.DataFrame([session.score_order(order) for order in prefix.to_dict("records")]).set_index("order_id")
+    actual = pd.DataFrame(
+        [session.score_order(order) for order in prefix.to_dict("records")]
+    ).set_index("order_id")
     assert actual.index.tolist() == expected.index.tolist()
     for name in ("scalper_probability", "neural_probability", "tree_probability", "risk_score"):
         np.testing.assert_allclose(actual[name], expected[name], atol=1e-7, rtol=1e-6)
-    for name in ("events_observed", "events_in_window", "confidence_tier", "reason_codes", "reason_details", "recommended_action"):
+    for name in (
+        "events_observed",
+        "events_in_window",
+        "confidence_tier",
+        "reason_codes",
+        "reason_details",
+        "recommended_action",
+    ):
         assert actual[name].tolist() == expected[name].tolist()
 
 
@@ -240,7 +293,13 @@ def test_merchant_overrides_change_advice_and_preserve_model_scores(trained_exam
     np.testing.assert_array_equal(baseline.scalper_probability, overridden.scalper_probability)
     for row in overridden.to_dict("records"):
         policy = custom if row["merchant_id"] == merchant else MerchantPolicy()
-        expected = decision_fields(row["scalper_probability"], row["neural_probability"], row["tree_probability"], {}, policy)
+        expected = decision_fields(
+            row["scalper_probability"],
+            row["neural_probability"],
+            row["tree_probability"],
+            {},
+            policy,
+        )
         assert row["recommended_action"] == expected["recommended_action"]
         assert row["risk_tier"] == expected["risk_tier"]
         assert row["merchant_decision_required"] is True
@@ -249,7 +308,9 @@ def test_merchant_overrides_change_advice_and_preserve_model_scores(trained_exam
         assert row["policy_cap_below"] == policy.cap_below
 
 
-def test_ranked_report_uses_later_cluster_evidence_without_rewriting_scores(trained_example, monkeypatch):
+def test_ranked_report_uses_later_cluster_evidence_without_rewriting_scores(
+    trained_example, monkeypatch
+):
     orders, directory, _ = trained_example
     detector = ScalperDetector.load(directory)
     source = orders.iloc[:3].copy().drop(columns=LABEL)
@@ -275,12 +336,16 @@ def test_ranked_report_uses_later_cluster_evidence_without_rewriting_scores(trai
     assert bool(report.loc["second", "flagged_by_later_cluster_activity"])
     assert not bool(report.loc["bridge", "flagged_by_later_cluster_activity"])
     assert report.review_trigger_order_id.eq("bridge").all()
-    np.testing.assert_array_equal(report.loc[scores.order_id, "scalper_probability"], scores.scalper_probability)
+    np.testing.assert_array_equal(
+        report.loc[scores.order_id, "scalper_probability"], scores.scalper_probability
+    )
     np.testing.assert_array_equal(report.loc[scores.order_id, "risk_score"], scores.risk_score)
 
 
 @pytest.mark.parametrize("earlier_event", ["different_event", ""])
-def test_review_does_not_propagate_across_different_or_missing_events(trained_example, monkeypatch, earlier_event):
+def test_review_does_not_propagate_across_different_or_missing_events(
+    trained_example, monkeypatch, earlier_event
+):
     orders, directory, _ = trained_example
     detector = ScalperDetector.load(directory)
     source = orders.iloc[:2].copy().drop(columns=LABEL)
@@ -303,14 +368,28 @@ def test_review_does_not_propagate_across_different_or_missing_events(trained_ex
 @pytest.mark.parametrize(
     "values",
     [
-        {"epochs": 0}, {"sequence_length": -1}, {"batch_size": 0}, {"hidden_size": True},
-        {"num_layers": 0}, {"patience": 0}, {"threads": 0}, {"seed": -1},
-        {"learning_rate": float("nan")}, {"learning_rate": float("inf")},
-        {"learning_rate": 0.0}, {"learning_rate": True}, {"learning_rate": "bad"},
-        {"dropout": -0.1}, {"dropout": 1.0}, {"dropout": float("nan")},
-        {"neural_weight": -0.1}, {"neural_weight": 1.1},
-        {"target_precision": 0}, {"target_precision": 1.1},
-        {"target_precision": True}, {"target_precision": "0.9"},
+        {"epochs": 0},
+        {"sequence_length": -1},
+        {"batch_size": 0},
+        {"hidden_size": True},
+        {"num_layers": 0},
+        {"patience": 0},
+        {"threads": 0},
+        {"seed": -1},
+        {"learning_rate": float("nan")},
+        {"learning_rate": float("inf")},
+        {"learning_rate": 0.0},
+        {"learning_rate": True},
+        {"learning_rate": "bad"},
+        {"dropout": -0.1},
+        {"dropout": 1.0},
+        {"dropout": float("nan")},
+        {"neural_weight": -0.1},
+        {"neural_weight": 1.1},
+        {"target_precision": 0},
+        {"target_precision": 1.1},
+        {"target_precision": True},
+        {"target_precision": "0.9"},
     ],
 )
 def test_invalid_training_config_fails(values):
@@ -326,44 +405,117 @@ def test_cli_payment_workflow(tmp_path, capsys):
     evaluation_path = tmp_path / "evaluation.json"
     main(["generate", "--cards", "60", "--seed", "31", "--output", str(training_path)])
     assert read_events(training_path, require_labels=True).card_id.nunique() == 60
-    main(["train", "--data", str(training_path), "--output", str(model_dir),
-          "--epochs", "1", "--hidden-size", "8", "--threads", "1", "--data-source", "synthetic",
-          "--target-precision", "0.9"])
+    main(
+        [
+            "train",
+            "--data",
+            str(training_path),
+            "--output",
+            str(model_dir),
+            "--epochs",
+            "1",
+            "--hidden-size",
+            "8",
+            "--threads",
+            "1",
+            "--data-source",
+            "synthetic",
+            "--target-precision",
+            "0.9",
+        ]
+    )
     source = pd.read_csv(training_path)
     source[LABEL] = "stale target annotation"
     source.to_csv(training_path, index=False)
-    main(["predict", "--data", str(training_path), "--model", str(model_dir),
-          "--output", str(predictions_path), "--threshold", "0.4"])
+    main(
+        [
+            "predict",
+            "--data",
+            str(training_path),
+            "--model",
+            str(model_dir),
+            "--output",
+            str(predictions_path),
+            "--threshold",
+            "0.4",
+        ]
+    )
     predictions = pd.read_csv(predictions_path)
     assert len(predictions) == len(source)
     assert predictions.scalper_probability.between(0, 1).all()
     assert predictions.decision_threshold.eq(0.4).all()
     assert isinstance(json.loads(predictions.reason_codes.iloc[0]), list)
-    main(["report", "--data", str(training_path), "--model", str(model_dir),
-          "--output", str(report_path), "--threshold", "0"])
+    main(
+        [
+            "report",
+            "--data",
+            str(training_path),
+            "--model",
+            str(model_dir),
+            "--output",
+            str(report_path),
+            "--threshold",
+            "0",
+        ]
+    )
     assert len(pd.read_csv(report_path)) == len(source)
-    main(["evaluate", "--data", str(model_dir / "test_orders.csv"), "--model", str(model_dir),
-          "--output", str(evaluation_path)])
+    main(
+        [
+            "evaluate",
+            "--data",
+            str(model_dir / "test_orders.csv"),
+            "--model",
+            str(model_dir),
+            "--output",
+            str(evaluation_path),
+        ]
+    )
     evaluation = json.loads(evaluation_path.read_text())
     metrics = json.loads((model_dir / "metrics.json").read_text())
     assert evaluation["metrics"] == metrics["test"]
     assert metrics["threshold_selection"]["target_precision"] == 0.9
-    assert metrics["threshold_selection"]["target_met"] == (metrics["calibration"]["precision"] >= 0.9)
+    assert metrics["threshold_selection"]["target_met"] == (
+        metrics["calibration"]["precision"] >= 0.9
+    )
     history_path = tmp_path / "history.csv"
     order_path = tmp_path / "one_order.json"
     inline_path = tmp_path / "inline_score.json"
     source.iloc[:20].to_csv(history_path, index=False)
     one_order = json.loads(source.iloc[20:21].to_json(orient="records"))[0]
     order_path.write_text(json.dumps(one_order, allow_nan=False))
-    main(["score-order", "--model", str(model_dir), "--order", str(order_path),
-          "--history", str(history_path), "--output", str(inline_path)])
+    main(
+        [
+            "score-order",
+            "--model",
+            str(model_dir),
+            "--order",
+            str(order_path),
+            "--history",
+            str(history_path),
+            "--output",
+            str(inline_path),
+        ]
+    )
     inline = json.loads(inline_path.read_text())
     expected = predictions.set_index("order_id").loc[one_order["order_id"]]
     assert inline["scalper_probability"] == pytest.approx(expected.scalper_probability, abs=1e-7)
     assert inline["merchant_decision_required"] is True
     benchmark_path = tmp_path / "benchmark.json"
-    main(["benchmark", "--model", str(model_dir), "--data", str(training_path),
-          "--orders", "5", "--warmup", "1", "--output", str(benchmark_path)])
+    main(
+        [
+            "benchmark",
+            "--model",
+            str(model_dir),
+            "--data",
+            str(training_path),
+            "--orders",
+            "5",
+            "--warmup",
+            "1",
+            "--output",
+            str(benchmark_path),
+        ]
+    )
     benchmark = json.loads(benchmark_path.read_text())
     assert benchmark["normal"]["orders_measured"] == 5
     assert benchmark["normal"]["end_to_end_ms"]["p95"] > 0
@@ -408,12 +560,20 @@ def test_different_event_fan_preserves_causal_diversity_and_online_scores(traine
     np.testing.assert_allclose(evidence.cluster_same_event_order_fraction_5m, 1 / np.arange(1, 7))
     expected = detector.predict(fan)
     early = detector.predict(fan.iloc[:3])
-    np.testing.assert_allclose(early.scalper_probability, expected.scalper_probability.iloc[:3], atol=1e-7, rtol=1e-6)
+    np.testing.assert_allclose(
+        early.scalper_probability, expected.scalper_probability.iloc[:3], atol=1e-7, rtol=1e-6
+    )
     session = detector.new_session()
     online = pd.DataFrame([session.score_order(order) for order in fan.to_dict("records")])
-    np.testing.assert_allclose(online.scalper_probability, expected.scalper_probability, atol=1e-7, rtol=1e-6)
-    same_event_reasons = {"event_ticket_limit_exceeded", "same_event_cross_site_buying",
-                          "linked_cards_same_event", "rapid_ticket_repeats"}
+    np.testing.assert_allclose(
+        online.scalper_probability, expected.scalper_probability, atol=1e-7, rtol=1e-6
+    )
+    same_event_reasons = {
+        "event_ticket_limit_exceeded",
+        "same_event_cross_site_buying",
+        "linked_cards_same_event",
+        "rapid_ticket_repeats",
+    }
     assert all(not same_event_reasons.intersection(codes) for codes in expected.reason_codes)
 
 

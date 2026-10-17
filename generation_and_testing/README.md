@@ -1,21 +1,20 @@
-# Payment authorization simulator
+# Synthetic ticket authorization generator
 
-Seeded synthetic data for training and testing a payment-side scalper detector, following the supplied JSON authorization layout. Requires Python 3.10+; no third-party packages.
+Generate seeded request streams for training and testing the ticket scalper detector. Requires Python 3.10 or later and uses only the Python standard library.
 
-From this directory:
+Run from the repository root. After the [shared environment setup](../README.md#1-install):
 
-```powershell
-python -m simulator.generate --config configs/default.json --output data/simulation
-python -m unittest discover -s tests -v
+```bash
+.venv/bin/python -m generation_and_testing.simulator.generate \
+  --config generation_and_testing/configs/default.json \
+  --output generation_and_testing/data/simulation
 ```
 
-On Windows, use `py` instead of `python` if that is your installed launcher. Choose a new or empty output directory for each run; existing data is never overwritten.
+On Windows PowerShell, use `.venv\Scripts\python.exe` and put the command on one line. Choose a new or empty output directory for each run; existing data is never overwritten.
 
-In this workspace, Python was available through the bundled Codex runtime rather than on `PATH`. To use that runtime from PowerShell:
+For standalone generation without the shared environment, use `python3` instead of `.venv/bin/python` (`py -3` on Windows). No detector or API installation is required.
 
-```powershell
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m simulator.generate --output data/another-run
-```
+## Generated dataset
 
 The default configuration produces **11,640 orders** across three days: 8,640 baseline orders plus 3,000 release-burst orders. Each split contains:
 
@@ -60,3 +59,11 @@ All identifiers are synthetic hashes. Card tokens are visibly non-PAN strings; s
 Synthetic test performance does not establish performance on real payment traffic. This generator deliberately creates detectable patterns, and card-testing labels indicate membership in a simulated scalper campaign rather than every possible real-world reason for a small purchase. Use representative authorized real data before making deployment claims.
 
 This implementation covers offline data generation. Authorization responses, model scores, replay networking, state storage, and response evaluation belong to the service pipeline and are not fabricated as training inputs.
+
+## Tests
+
+```bash
+.venv/bin/python -m unittest discover -s generation_and_testing/tests -v
+```
+
+The tests use temporary output directories and check reproducibility, schema validation, chronology, identity isolation, release bursts, and tactic behavior. Run the complete repository suite with `.venv/bin/python -m pytest -q` after installing the shared development dependencies.

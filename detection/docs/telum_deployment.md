@@ -1,17 +1,17 @@
 # Telum deployment and measurement
 
-This guide starts after the team has supplied labeled ticket orders and trained its own model. No transaction dataset, pretrained model, compiled shared library, or hardware measurement is bundled with the repository. The compiler command below is a template for target-environment work, not a recorded deployment result.
+Start with a trained model from the [repository quick start](../../README.md) or your own labeled ticket orders. Run commands from the repository root. No transaction dataset, pretrained model, compiled shared library, or hardware measurement is bundled with the repository. The compiler command below is a template for target-environment work.
 
 ## Export the trained neural branch
 
 ```bash
-.venv/bin/python -m pip install -e '.[deploy]'
+.venv/bin/python -m pip install -e './detection[deploy]'
 .venv/bin/scalper-detector export-onnx \
   --model artifacts/ticket_model \
   --output artifacts/ticket_model/scalper_lstm.onnx
 ```
 
-First train with team-supplied data using `train --data data/ticket_orders.csv --data-source user_supplied --output artifacts/ticket_model`, as described in the [README](../README.md). Keep `model.pt`, the ONNX graph, its `.manifest.json`, `metadata.json`, `tree.json`, and model version together. The manifest records operator names, feature order, input shapes, and any numerical checks performed. Its output is a neural **logit**, not the final probability or merchant action.
+For team-supplied data, use `train --data data/ticket_orders.csv --data-source user_supplied --output artifacts/ticket_model`, as described in the [detector guide](../README.md). Keep `model.pt`, the ONNX graph, its `.manifest.json`, `metadata.json`, `tree.json`, and model version together. The manifest records operator names, feature order, input shapes, and any numerical checks performed. The graph outputs a neural **logit**; calibration and merchant policy are applied separately.
 
 The input contract is float32 `features[B,T,N]` and int64 `lengths[B]`. `T` defaults to seven history steps but follows the saved training configuration. The current numeric schema has 42 fields; learned category/card-type encodings determine the final width `N`. Read the exported manifest's `inputs.features.shape` and `feature_order`, and compare them with `metadata.json`. There is no included model with a fixed width. Histories are right padded; lengths identify the last real order. Chronological state and standardization remain outside the graph.
 

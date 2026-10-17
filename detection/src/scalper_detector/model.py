@@ -31,11 +31,7 @@ class ScalperLSTM(nn.Module):
         ):
             if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
-        if (
-            isinstance(dropout, bool)
-            or not isinstance(dropout, Real)
-            or not 0.0 <= dropout < 1.0
-        ):
+        if isinstance(dropout, bool) or not isinstance(dropout, Real) or not 0.0 <= dropout < 1.0:
             raise ValueError("dropout must be a finite number in [0, 1)")
 
         self.input_size = int(input_size)

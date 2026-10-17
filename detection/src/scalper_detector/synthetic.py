@@ -47,10 +47,26 @@ _PERFORMANCE_TYPES = ("concert", "sports", "theatre")
 _EXAMPLE_BINS = ("400100", "400200", "411100", "420100", "510100", "520100", "540100", "550100")
 
 _COLUMNS = [
-    "order_id", "timestamp", "card_id", "card_bin", "merchant_id", "category", "amount",
-    "shipping_hash", "billing_hash", "email_hash", "device_id", "event_id", "card_type",
-    "quantity", "seconds_since_release", "card_age_days", "ticket_limit",
-    "performance_type", "performance_date", "is_scalper",
+    "order_id",
+    "timestamp",
+    "card_id",
+    "card_bin",
+    "merchant_id",
+    "category",
+    "amount",
+    "shipping_hash",
+    "billing_hash",
+    "email_hash",
+    "device_id",
+    "event_id",
+    "card_type",
+    "quantity",
+    "seconds_since_release",
+    "card_age_days",
+    "ticket_limit",
+    "performance_type",
+    "performance_date",
+    "is_scalper",
 ]
 
 
@@ -127,14 +143,16 @@ def generate_synthetic_data(
     def add_performance(kind: str, release: datetime, unit_amount: float) -> int:
         index = len(catalog)
         type_indices[kind].append(index)
-        catalog.append({
-            "event_id": f"performance_{index:03d}",
-            "performance_type": kind,
-            "performance_date": (release + timedelta(days=180)).date().isoformat(),
-            "unit_amount": unit_amount,
-            "ticket_limit": int(rng.choice([4, 6, 8], p=[0.55, 0.30, 0.15])),
-            "release": release,
-        })
+        catalog.append(
+            {
+                "event_id": f"performance_{index:03d}",
+                "performance_type": kind,
+                "performance_date": (release + timedelta(days=180)).date().isoformat(),
+                "unit_amount": unit_amount,
+                "ticket_limit": int(rng.choice([4, 6, 8], p=[0.55, 0.30, 0.15])),
+                "release": release,
+            }
+        )
         return index
 
     for kind in _PERFORMANCE_TYPES:
@@ -179,14 +197,20 @@ def generate_synthetic_data(
             "device_id": f"device_synth_{group_token}",
         }
         primary_type = str(rng.choice(_PERFORMANCE_TYPES))
-        targets = rng.choice(type_indices[primary_type], size=int(rng.integers(target_min, target_max)), replace=False)
+        targets = rng.choice(
+            type_indices[primary_type],
+            size=int(rng.integers(target_min, target_max)),
+            replace=False,
+        )
         if label and rng.random() < 0.20:
             bundle = bundles_by_type[primary_type][int(rng.integers(8))]
             targets = rng.choice(bundle, size=min(len(targets), len(bundle)), replace=False)
         merchants = rng.choice(16, size=int(rng.integers(3, 6)), replace=False)
         delay_center = persona.delay_seconds * float(rng.lognormal(0, 0.8))
         quantity_center = persona.extra_quantity * float(rng.lognormal(0, 0.4))
-        repeat_probability = float(np.clip(persona.repeat_probability + rng.normal(0, 0.08), 0.10, 0.97))
+        repeat_probability = float(
+            np.clip(persona.repeat_probability + rng.normal(0, 0.08), 0.10, 0.97)
+        )
         campaign_delays = {
             int(index): float(np.clip(rng.lognormal(np.log(delay_center), 1.1), 0.1, 100 * 86_400))
             for index in targets
@@ -218,8 +242,11 @@ def generate_synthetic_data(
                 selected = available_bundles[int(rng.integers(len(available_bundles)))]
                 burst_count = int(rng.integers(6, min(10, len(selected)) + 1))
                 fan_targets = rng.choice(selected, size=burst_count, replace=False).tolist()
-                gaps = (np.ones(burst_count - 1) if rng.random() < 0.55
-                        else rng.uniform(0.4, 1.6, size=burst_count - 1))
+                gaps = (
+                    np.ones(burst_count - 1)
+                    if rng.random() < 0.55
+                    else rng.uniform(0.4, 1.6, size=burst_count - 1)
+                )
                 gaps *= float(rng.uniform(60, 180)) / gaps.sum()
                 fan_times = float(rng.lognormal(np.log(40), 0.65)) + np.r_[0.0, np.cumsum(gaps)]
             card_orders = []
@@ -229,17 +256,30 @@ def generate_synthetic_data(
                     target_index = int(fan_targets[order_number])
                     normal_remaining[target_index] = catalog[target_index]["ticket_limit"]
                 elif not label:
-                    reusable = [index for index, left in normal_remaining.items()
-                                if left > 0 and event_order_counts[index] < normal_bookings_per_event]
+                    reusable = [
+                        index
+                        for index, left in normal_remaining.items()
+                        if left > 0 and event_order_counts[index] < normal_bookings_per_event
+                    ]
                     if reusable and rng.random() < repeat_probability:
                         target_index = int(rng.choice(reusable))
                     else:
-                        unused = [index for index in type_indices[primary_type] if index not in normal_remaining]
+                        unused = [
+                            index
+                            for index in type_indices[primary_type]
+                            if index not in normal_remaining
+                        ]
                         if not unused or rng.random() > 0.72:
-                            unused = [index for index in range(len(catalog)) if index not in normal_remaining]
+                            unused = [
+                                index
+                                for index in range(len(catalog))
+                                if index not in normal_remaining
+                            ]
                         target_index = int(rng.choice(unused))
                         multiplier = 2 if separate_legitimate_buyers else 1
-                        normal_remaining[target_index] = catalog[target_index]["ticket_limit"] * multiplier
+                        normal_remaining[target_index] = (
+                            catalog[target_index]["ticket_limit"] * multiplier
+                        )
                 elif order_number < forced_repeats:
                     target_index = int(targets[0])
                 elif rng.random() < repeat_probability:
@@ -265,7 +305,11 @@ def generate_synthetic_data(
                 else:
                     delay = float(rng.lognormal(np.log(delay_center), 1.25))
                 delay = float(np.clip(delay, 0.1, 120 * 86_400))
-                if fan_booking or order_number < forced_repeats or rng.random() < persona.cross_merchant_probability:
+                if (
+                    fan_booking
+                    or order_number < forced_repeats
+                    or rng.random() < persona.cross_merchant_probability
+                ):
                     merchant = int(merchants[(order_number + local_card) % len(merchants)])
                 else:
                     merchant = int(merchants[0])
@@ -308,13 +352,19 @@ def generate_synthetic_data(
             for order in card_orders:
                 age = age_at_start + (order["timestamp"] - first_time).total_seconds() / 86_400
                 order["card_age_days"] = round(age, 3) if rng.random() < 0.85 else None
-                order["timestamp"] = order["timestamp"].isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                order["timestamp"] = (
+                    order["timestamp"].isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                )
             rows.extend(card_orders)
 
     order_tokens = rng.permutation(len(rows))
     for order, token in zip(rows, order_tokens):
         order["order_id"] = f"order_synth_{int(token):08d}"
-    return pd.DataFrame(rows, columns=_COLUMNS).sort_values("timestamp", kind="stable").reset_index(drop=True)
+    return (
+        pd.DataFrame(rows, columns=_COLUMNS)
+        .sort_values("timestamp", kind="stable")
+        .reset_index(drop=True)
+    )
 
 
 def generate_ticket_scenarios() -> pd.DataFrame:
@@ -327,37 +377,49 @@ def generate_ticket_scenarios() -> pd.DataFrame:
     release = datetime(2025, 9, 1, 12, tzinfo=timezone.utc)
     rows = []
 
-    def add(name: str, group: int, card: int, event: int, seconds: int,
-            quantity: int, merchant: int) -> None:
-        rows.append({
-            "order_id": f"scenario_order_{len(rows):03d}",
-            "timestamp": (release + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z"),
-            "card_id": f"scenario_card_{card:02d}",
-            "card_bin": "400100",
-            "merchant_id": f"merchant_{merchant:03d}",
-            "category": "tickets",
-            "amount": float(quantity * 80),
-            "shipping_hash": f"scenario_ship_{group:02d}",
-            "billing_hash": f"scenario_bill_{group:02d}",
-            "email_hash": f"scenario_email_{group:02d}",
-            "device_id": f"scenario_device_{group:02d}",
-            "event_id": f"scenario_performance_{event:02d}",
-            "card_type": "credit",
-            "quantity": quantity,
-            "seconds_since_release": float(seconds),
-            "card_age_days": 365.0,
-            "ticket_limit": 4,
-            "performance_type": "concert",
-            "performance_date": "2025-12-01",
-            "scenario_name": name,
-        })
+    def add(
+        name: str, group: int, card: int, event: int, seconds: int, quantity: int, merchant: int
+    ) -> None:
+        rows.append(
+            {
+                "order_id": f"scenario_order_{len(rows):03d}",
+                "timestamp": (release + timedelta(seconds=seconds))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "card_id": f"scenario_card_{card:02d}",
+                "card_bin": "400100",
+                "merchant_id": f"merchant_{merchant:03d}",
+                "category": "tickets",
+                "amount": float(quantity * 80),
+                "shipping_hash": f"scenario_ship_{group:02d}",
+                "billing_hash": f"scenario_bill_{group:02d}",
+                "email_hash": f"scenario_email_{group:02d}",
+                "device_id": f"scenario_device_{group:02d}",
+                "event_id": f"scenario_performance_{event:02d}",
+                "card_type": "credit",
+                "quantity": quantity,
+                "seconds_since_release": float(seconds),
+                "card_age_days": 365.0,
+                "ticket_limit": 4,
+                "performance_type": "concert",
+                "performance_date": "2025-12-01",
+                "scenario_name": name,
+            }
+        )
 
     add("casual_fan", 1, 1, 1, 25, 2, 0)
     add("family_booking", 2, 2, 2, 15, 4, 1)
     for wave in range(3):
         for card_offset in range(3):
-            add("cross_site_card_rotation", 3, 3 + card_offset, 3,
-                20 + 10 * (wave * 3 + card_offset), 2, (wave + card_offset) % 3)
+            add(
+                "cross_site_card_rotation",
+                3,
+                3 + card_offset,
+                3,
+                20 + 10 * (wave * 3 + card_offset),
+                2,
+                (wave + card_offset) % 3,
+            )
     for number in range(6):
         add("different_events_fan", 4, 6, 4 + number, 10 + number * 15, 2, number % 3)
     return pd.DataFrame(rows).sort_values("timestamp", kind="stable").reset_index(drop=True)

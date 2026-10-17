@@ -17,25 +17,27 @@ from scalper_detector.data import (
 
 def _orders() -> pd.DataFrame:
     start = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    return pd.DataFrame([
-        {
-            "order_id": f"order-{number}",
-            "timestamp": (start + timedelta(seconds=seconds)).isoformat(),
-            "card_id": f"card-{number}",
-            "card_bin": "001234",
-            "merchant_id": f"merchant-{number}",
-            "category": "tickets",
-            "amount": 160.0,
-            "event_id": "concert-shared",
-            "quantity": 2,
-            "ticket_limit": 4,
-            "split_group": partition,
-            "is_scalper": number % 2,
-        }
-        for number, (seconds, partition) in enumerate(
-            [(0, "train"), (10, "validation"), (70, "test")]
-        )
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "order_id": f"order-{number}",
+                "timestamp": (start + timedelta(seconds=seconds)).isoformat(),
+                "card_id": f"card-{number}",
+                "card_bin": "001234",
+                "merchant_id": f"merchant-{number}",
+                "category": "tickets",
+                "amount": 160.0,
+                "event_id": "concert-shared",
+                "quantity": 2,
+                "ticket_limit": 4,
+                "split_group": partition,
+                "is_scalper": number % 2,
+            }
+            for number, (seconds, partition) in enumerate(
+                [(0, "train"), (10, "validation"), (70, "test")]
+            )
+        ]
+    )
 
 
 @pytest.mark.parametrize("missing", [None, np.nan, ""])
@@ -105,33 +107,54 @@ def test_population_context_requires_both_counts_or_neither(provided):
 @pytest.mark.parametrize(
     "one_minute,five_minutes",
     [
-        (0, 1), (-1, 1), (1.5, 2),
-        (1, 0), (1, -1), (1, 2.5),
-        (np.inf, np.inf), (1, np.inf), ("invalid", 2),
+        (0, 1),
+        (-1, 1),
+        (1.5, 2),
+        (1, 0),
+        (1, -1),
+        (1, 2.5),
+        (np.inf, np.inf),
+        (1, np.inf),
+        ("invalid", 2),
     ],
 )
 def test_population_context_rejects_nonpositive_fractional_or_nonfinite_counts(
-    one_minute, five_minutes,
+    one_minute,
+    five_minutes,
 ):
-    order = _orders().iloc[[0]].assign(
-        processor_bin_orders_1m=one_minute,
-        processor_bin_orders_5m=five_minutes,
+    order = (
+        _orders()
+        .iloc[[0]]
+        .assign(
+            processor_bin_orders_1m=one_minute,
+            processor_bin_orders_5m=five_minutes,
+        )
     )
     with pytest.raises(ValueError, match="processor_bin_orders"):
         validate_events(order)
 
 
 def test_five_minute_population_count_cannot_be_smaller_than_one_minute():
-    order = _orders().iloc[[0]].assign(
-        processor_bin_orders_1m=5, processor_bin_orders_5m=4,
+    order = (
+        _orders()
+        .iloc[[0]]
+        .assign(
+            processor_bin_orders_1m=5,
+            processor_bin_orders_5m=4,
+        )
     )
     with pytest.raises(ValueError, match="cannot be less"):
         validate_events(order)
 
 
 def test_integer_count_strings_from_csv_are_accepted():
-    order = _orders().iloc[[0]].assign(
-        processor_bin_orders_1m="12", processor_bin_orders_5m="45",
+    order = (
+        _orders()
+        .iloc[[0]]
+        .assign(
+            processor_bin_orders_1m="12",
+            processor_bin_orders_5m="45",
+        )
     )
     features = engineer_events(order)
     assert features.bin_orders_1m.iloc[0] == 12
@@ -146,7 +169,8 @@ def test_past_processor_context_is_not_rewritten_by_future_counts():
     prefix = engineer_events(orders.iloc[:2])
     complete = engineer_events(orders)
     pd.testing.assert_frame_equal(
-        prefix[list(NUMERIC_FEATURES)], complete.iloc[:2][list(NUMERIC_FEATURES)],
+        prefix[list(NUMERIC_FEATURES)],
+        complete.iloc[:2][list(NUMERIC_FEATURES)],
     )
     assert complete.bin_orders_1m.tolist() == [31, 33, 999]
 
@@ -173,10 +197,12 @@ def test_unlabeled_global_bin_context_can_follow_a_partial_component_feed():
 def test_global_population_counts_ignore_label_values_and_split_metadata():
     orders = _orders()
     original = engineer_events(orders)
-    changed = engineer_events(orders.assign(is_scalper=1 - orders.is_scalper,
-                                            split_group="different-assignment"))
+    changed = engineer_events(
+        orders.assign(is_scalper=1 - orders.is_scalper, split_group="different-assignment")
+    )
     unlabeled = engineer_events(orders.drop(columns=["is_scalper", "split_group"]))
     for alternative in (changed, unlabeled):
         pd.testing.assert_frame_equal(
-            original[list(NUMERIC_FEATURES)], alternative[list(NUMERIC_FEATURES)],
+            original[list(NUMERIC_FEATURES)],
+            alternative[list(NUMERIC_FEATURES)],
         )

@@ -1,11 +1,18 @@
-from copy import deepcopy
+"""Regression checks for synthetic traffic and isolated chronological splits."""
+
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 
-from simulator.generate import TACTICS, generate, parse_time, validate_config
-
+from generation_and_testing.simulator.generate import (
+    TACTICS,
+    Generator,
+    generate,
+    parse_time,
+    validate_config,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,7 +81,6 @@ class SimulationTests(unittest.TestCase):
             self.assertGreater(result["splits"]["test"]["tactics"]["card_testing"], 0)
 
     def test_tactic_behaviors(self):
-        from simulator.generate import Generator
         start, end = validate_config(self.config)
         sim = Generator(self.config, "test", start, end)
         for tactic in TACTICS:

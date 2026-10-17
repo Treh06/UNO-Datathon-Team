@@ -1,10 +1,10 @@
-# Payment-Side Ticket Scalper Detection
+# Ticket scalper detector
 
 A Python prototype that scores **ticket purchase orders** for patterns associated with scalping across ticketing sites. It combines a PyTorch LSTM with a random forest, then returns a risk estimate, observed evidence, a confidence tier, and a merchant action recommendation.
 
-**Presentation pitch:** A ticketing site sees its own orders. A payment processor can see repeated purchases across participating sites. This project uses that wider payment history to help merchants review suspicious ticket buying while accounting for families, group bookings, and fans buying different events.
+A ticketing site sees its own orders. A payment processor can see repeated purchases across participating sites. This project uses that wider payment history to help merchants review suspicious ticket buying while accounting for families, group bookings, and fans buying different events.
 
-**Current state:** No transaction datasets, sample orders, or pretrained models are bundled. Generate synthetic authorizations with the companion simulator, or add your team's reviewed ticket data before training. You can install the project and run the automated tests immediately. The current implementation runs on CPU; IBM Telum deployment and hardware measurements remain future work.
+Generate synthetic authorizations with the companion simulator or supply reviewed ticket data before training. No generated dataset or pretrained model is committed. The authorization component includes a small HTTP smoke sample, which is not a training dataset. Local inference runs on CPU; IBM Telum deployment and hardware measurements remain unverified.
 
 ## Contents
 
@@ -20,7 +20,7 @@ A Python prototype that scores **ticket purchase orders** for patterns associate
 - [Presentation walkthrough](#presentation-walkthrough)
 - [Benchmark and export](#benchmark-and-export)
 - [Troubleshooting](#troubleshooting)
-- [Project files and Git workflow](#project-files-and-git-workflow)
+- [Project files](#project-files)
 
 ## What the project does
 
@@ -68,7 +68,7 @@ Requirements are Python **3.10 or later**, a terminal, and internet access for t
 
 ### 2. Create the environment and install dependencies
 
-On macOS or Linux:
+On Linux or macOS:
 
 ```bash
 python3 --version
@@ -76,7 +76,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e './detection[dev,api]'
 ```
 
-This installs the project, PyTorch, NumPy, pandas, scikit-learn, and pytest. The explicit `.venv/bin/` paths keep every command in the same Python environment; activation is optional.
+This installs the detector, model dependencies, API dependencies, Ruff, and pytest. The explicit `.venv/bin/` paths keep every command in the same Python environment; activation is optional.
 
 For Windows PowerShell, create/install with:
 
@@ -94,13 +94,13 @@ For the remaining commands, replace `.venv/bin/python` with `.venv\Scripts\pytho
 .venv/bin/python -m pytest -q
 ```
 
-Tests construct temporary inputs and models themselves; they do not need a dataset in the repository. For all three components, install `./detection[dev,api]` and run the root test command. It covers the detector, generator, replay, and authorization API. Some ONNX checks skip when those optional packages are absent.
+Tests construct temporary inputs and models; they do not need a saved dataset. The root test command covers the detector, generator, authorization/replay, and live demo. Some ONNX checks skip when optional deployment packages are absent. See [CONTRIBUTING.md](../CONTRIBUTING.md) for formatting and lint commands.
 
 **What works before you add data:** command help, the generator, and automated tests. Training requires generated or team-supplied orders. Prediction, model evaluation, benchmarking, and export require a trained model.
 
 ## Use the companion simulator
 
-The [repository quick start](../README.md) connects your friend's simulator to this detector. Its [original generator guide](../generation_and_testing/README.md) documents configuration and tactics.
+The [repository quick start](../README.md) connects synthetic generation, training, and HTTP scoring. The [generator guide](../generation_and_testing/README.md) documents configuration and tactics.
 
 ```bash
 .venv/bin/python -m generation_and_testing.simulator.generate \
@@ -350,7 +350,7 @@ Run focused checks while developing:
 | Simulator integration | JSONL mapping, offline-only truth joins, preserved source splits, held-out tactics, and legitimate-bulk analysis. |
 | Benchmark and deployment | Replay accounting, simulated pressure, and optional ONNX numerical parity. |
 
-The tests create temporary synthetic fixtures as part of their assertions. They do not leave a transaction dataset or a trained demo model in the project. Older detector-only `generate`, `demo`, and `scenarios` commands remain available for experimentation. Use the companion generator and `train-simulation` for the integrated workflow.
+The tests create temporary synthetic fixtures as part of their assertions. They do not leave a transaction dataset or a trained demo model in the project. Detector-only `generate`, `demo`, and `scenarios` commands are also available for experimentation. Use the companion generator and `train-simulation` for the integrated workflow.
 
 To include ONNX verification:
 
@@ -412,7 +412,7 @@ The export includes a manifest and CPU numerical checks. Feature state, the fore
 | Problem | What to check |
 | --- | --- |
 | `.venv/bin/scalper-detector` is missing | Run the editable install from the project root using `.venv/bin/python`. On Windows, use the `Scripts` paths above. |
-| A data path does not exist | Add your own file or correct `--data`, `--history`, or `--order`. No sample transactions are bundled. |
+| A data path does not exist | Generate a dataset or supply your own file, then correct `--data`, `--history`, or `--order`. |
 | `metadata.json` or model files are missing | Train first, then pass `--model artifacts/ticket_model`. CLI defaults for legacy synthetic helpers may point elsewhere. |
 | A model format/feature-contract error appears | Retrain with the current code. Keep `model.pt`, `tree.json`, and `metadata.json` from the same run together. |
 | Training needs four components per class | Add independent labeled buyer groups in both classes. More rows on the same linked cards do not solve this. |
@@ -424,7 +424,7 @@ The export includes a manifest and CPU numerical checks. Feature state, the fore
 | ONNX tests skip or export tooling is missing | Install `./detection[deploy]`. Exporter warnings can occur; inspect the parity result and manifest rather than treating warnings as successful target-hardware validation. |
 | A precision target is unmet | Inspect `threshold_selection` in `metrics.json`. Data quality, population, and the available model evidence limit achievable precision. |
 
-## Project files and Git workflow
+## Project files
 
 | Path | Purpose |
 | --- | --- |
@@ -433,29 +433,13 @@ The export includes a manifest and CPU numerical checks. Feature state, the fore
 | `metrics.py`, `decision.py`, `service.py` | Evaluation, policy/evidence, and the stateful order-scoring session. |
 | `cli.py`, `benchmark.py`, `deployment.py` | Commands, replay measurements, and neural export. |
 | `authorizations.py`, `simulation.py` | Authorization JSONL mapping, source-split training, and offline tactic analysis. |
-| `detection/tests/`, `generation_and_testing/tests/` | Automated regression and integration tests. |
+| `detection/tests/`, `generation_and_testing/tests/`, `datathon_authorization/tests/`, `live_demo/test_live_demo.py` | Automated regression and integration tests. |
 | `detection/examples/merchant_policy.json` | Editable merchant policy configuration. |
-| `generation_and_testing/` | Companion simulator, its configuration, and its preserved original README. |
+| `generation_and_testing/` | Companion simulator, scenario configuration, and generator guide. |
 | `datathon_authorization/` | Trained-model HTTP authorization API, replay CLI, samples, and integration tests. |
 | `data/` | Your local input data; ignored by Git. |
 | `artifacts/ticket_model/` | Created by training: model files, `metrics.json`, `order_splits.csv`, and held-out `test_orders.csv`. Ignored by Git. |
 | `artifacts/presentation/` | Your scoring, review, evaluation, and benchmark outputs. Ignored by Git. |
-| `detection/docs/` | [Implementation detail](docs/implementation.md), [deployment](docs/telum_deployment.md), [Git workflow](docs/git_workflow.md), and the [preserved abstract](docs/project_abstract.txt). |
+| `detection/docs/` | [Implementation](docs/implementation.md), [deployment](docs/telum_deployment.md), [contribution workflow](docs/git_workflow.md), and the [original project abstract](docs/project_abstract.txt). |
 
-Work on the feature branch rather than `main`. Check the branch before committing:
-
-```bash
-git branch --show-current
-git status --short
-```
-
-The integrated project is on `feature/data-generator`; the original detector branch is `feat/ticket-scalper-detection`. On the integration branch, review and save source/documentation changes with:
-
-```bash
-git add .gitignore README.md pytest.ini detection generation_and_testing datathon_authorization
-git diff --cached --stat
-git commit -m "Update integrated ticket-scalper workflow"
-git push -u origin feature/data-generator
-```
-
-Pushing the feature branch does not merge it into `main`. Input data, trained models, and the virtual environment are excluded. Commit your work before switching branches so uncommitted files do not follow you unexpectedly.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for development checks and the [Git workflow](docs/git_workflow.md) for reviewing and sharing changes. Keep input data, model outputs, and virtual environments out of commits.

@@ -1,10 +1,15 @@
 """Map a trained ticket detector's advisory action to a simulated status."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from .models import AuthorizationResponse, Transaction
 from .validator import validate_transaction
 
+if TYPE_CHECKING:
+    from scalper_detector.service import OrderScoringSession
 
 _STATUS = {
     "allow": "APPROVE",
@@ -14,7 +19,12 @@ _STATUS = {
 }
 
 
-def authorize(txn: Transaction, session, *, order: dict | None = None) -> AuthorizationResponse:
+def authorize(
+    txn: Transaction,
+    session: OrderScoringSession,
+    *,
+    order: dict[str, Any] | None = None,
+) -> AuthorizationResponse:
     """Score the observed request using the saved detector, without rule fallback.
 
     All outcomes remain simulated. Requests are observed attempts; neither

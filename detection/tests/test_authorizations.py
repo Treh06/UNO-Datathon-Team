@@ -1,27 +1,41 @@
 """Schema conversion and strict separation of requests from simulator truth."""
 
-from copy import deepcopy
-from decimal import Decimal
 import importlib.util
 import json
+from copy import deepcopy
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from scalper_detector.authorizations import authorization_to_order, read_authorizations, read_ground_truth
-from scalper_detector.data import EventPreprocessor, LABEL
+from scalper_detector.authorizations import (
+    authorization_to_order,
+    read_authorizations,
+    read_ground_truth,
+)
+from scalper_detector.data import LABEL, EventPreprocessor
 
 
 @pytest.fixture
 def payload():
     return {
-        "txn_id": "000001", "event_ts": "2026-11-05T12:00:00Z",
-        "card_token": "000123", "bin": "001234", "merchant_id": "0009", "mcc": "7922",
-        "event_id": "00042", "quantity": 2, "amount": 90.5, "currency": "USD",
-        "ship_addr_hash": "shipping_token", "bill_addr_hash": "billing_token",
-        "email_hash": "email_token", "device_id": "device_token", "card_type": "credit",
+        "txn_id": "000001",
+        "event_ts": "2026-11-05T12:00:00Z",
+        "card_token": "000123",
+        "bin": "001234",
+        "merchant_id": "0009",
+        "mcc": "7922",
+        "event_id": "00042",
+        "quantity": 2,
+        "amount": 90.5,
+        "currency": "USD",
+        "ship_addr_hash": "shipping_token",
+        "bill_addr_hash": "billing_token",
+        "email_hash": "email_token",
+        "device_id": "device_token",
+        "card_type": "credit",
         "card_issue_date": "2026-11-01",
     }
 
@@ -32,7 +46,12 @@ def _write_jsonl(path, rows):
 
 
 def _truth(txn_id="000001", label=1):
-    return {"txn_id": txn_id, LABEL: label, "actor_id": "actor_offline", "tactic": "shared_address_ring"}
+    return {
+        "txn_id": txn_id,
+        LABEL: label,
+        "actor_id": "actor_offline",
+        "tactic": "shared_address_ring",
+    }
 
 
 def test_explicit_field_mapping_preserves_tokens_and_units(payload):
@@ -56,14 +75,34 @@ def test_explicit_field_mapping_preserves_tokens_and_units(payload):
 
 
 def test_absent_optional_inputs_stay_unknown_and_are_not_invented(payload):
-    for key in ("card_issue_date", "event_id", "quantity", "ship_addr_hash", "bill_addr_hash", "email_hash", "device_id"):
+    for key in (
+        "card_issue_date",
+        "event_id",
+        "quantity",
+        "ship_addr_hash",
+        "bill_addr_hash",
+        "email_hash",
+        "device_id",
+    ):
         payload.pop(key)
-    payload.update(quantity_cap=8, drops=[{"timestamp": "2026-11-05T00:00:00Z"}], ticket_limit=8,
-                   seconds_since_release=12, ip_prefix="192.0.2.0/24", channel="api")
+    payload.update(
+        quantity_cap=8,
+        drops=[{"timestamp": "2026-11-05T00:00:00Z"}],
+        ticket_limit=8,
+        seconds_since_release=12,
+        ip_prefix="192.0.2.0/24",
+        channel="api",
+    )
     actual = authorization_to_order(payload)
     assert actual["quantity_available"] == actual["event_id_known"] == actual["card_age_known"] == 0
     assert actual["release_time_known"] == actual["ticket_limit_known"] == 0
-    assert actual["shipping_hash"] == actual["billing_hash"] == actual["email_hash"] == actual["device_id"] == ""
+    assert (
+        actual["shipping_hash"]
+        == actual["billing_hash"]
+        == actual["email_hash"]
+        == actual["device_id"]
+        == ""
+    )
     assert "quantity_cap" not in actual
     assert "drops" not in actual
     assert "ip_prefix" not in actual
@@ -72,9 +111,18 @@ def test_absent_optional_inputs_stay_unknown_and_are_not_invented(payload):
 
 def test_unknown_source_fields_cannot_shadow_canonical_fields(payload):
     expected = authorization_to_order(payload)
-    payload.update(card_id="wrong", card_bin="wrong", order_id="wrong", shipping_hash="wrong", category="wrong",
-                   final_spend=999999, detection_result={"tactic": "future"})
-    pd.testing.assert_frame_equal(pd.DataFrame([authorization_to_order(payload)]), pd.DataFrame([expected]))
+    payload.update(
+        card_id="wrong",
+        card_bin="wrong",
+        order_id="wrong",
+        shipping_hash="wrong",
+        category="wrong",
+        final_spend=999999,
+        detection_result={"tactic": "future"},
+    )
+    pd.testing.assert_frame_equal(
+        pd.DataFrame([authorization_to_order(payload)]), pd.DataFrame([expected])
+    )
 
 
 @pytest.mark.parametrize("category", ["sneakers", "cards", "collectibles", "other", None, 1])
@@ -87,7 +135,9 @@ def test_explicit_non_ticket_authorization_category_is_rejected(payload, categor
 def test_explicit_ticket_category_preserves_existing_generator_features(payload):
     expected = authorization_to_order(payload)
     payload["product_category"] = "tickets"
-    pd.testing.assert_frame_equal(pd.DataFrame([authorization_to_order(payload)]), pd.DataFrame([expected]))
+    pd.testing.assert_frame_equal(
+        pd.DataFrame([authorization_to_order(payload)]), pd.DataFrame([expected])
+    )
 
 
 @pytest.mark.parametrize("amount", ["90.50", Decimal("90.50")])
@@ -96,7 +146,9 @@ def test_authorization_decimal_amounts_keep_usd_units(payload, amount):
     assert authorization_to_order(payload)["amount"] == 90.5
 
 
-@pytest.mark.parametrize("amount", ["NaN", "Infinity", "-Infinity", "0", "-10", "not-money", "1e9999"])
+@pytest.mark.parametrize(
+    "amount", ["NaN", "Infinity", "-Infinity", "0", "-10", "not-money", "1e9999"]
+)
 def test_invalid_decimal_payment_strings_rejected(payload, amount):
     payload["amount"] = amount
     with pytest.raises(ValueError, match="amount"):
@@ -117,14 +169,28 @@ def test_required_identifiers_never_fabricated(payload, field):
         authorization_to_order(payload)
 
 
-@pytest.mark.parametrize("field,value", [
-    ("currency", "EUR"), ("currency", None), ("mcc", "5732"), ("mcc", None),
-    ("amount", 0), ("amount", -1), ("amount", float("nan")), ("amount", True),
-    ("quantity", 0), ("quantity", 1.5), ("quantity", True),
-    ("card_issue_date", "2026-11-06"), ("card_issue_date", "2026-02-30"),
-    ("card_issue_date", "2026-11-01T00:00:00Z"), ("card_issue_date", "20261101"),
-    ("event_ts", "2026-11-05T12:00:00"), ("event_ts", "not a date"),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("currency", "EUR"),
+        ("currency", None),
+        ("mcc", "5732"),
+        ("mcc", None),
+        ("amount", 0),
+        ("amount", -1),
+        ("amount", float("nan")),
+        ("amount", True),
+        ("quantity", 0),
+        ("quantity", 1.5),
+        ("quantity", True),
+        ("card_issue_date", "2026-11-06"),
+        ("card_issue_date", "2026-02-30"),
+        ("card_issue_date", "2026-11-01T00:00:00Z"),
+        ("card_issue_date", "20261101"),
+        ("event_ts", "2026-11-05T12:00:00"),
+        ("event_ts", "not a date"),
+    ],
+)
 def test_invalid_values_rejected(payload, field, value):
     payload[field] = value
     with pytest.raises(ValueError):
@@ -145,7 +211,9 @@ def test_card_age_uses_utc_order_timestamp(payload):
 def test_readers_join_exact_ids_only_on_explicit_request(payload, tmp_path):
     second = dict(payload, txn_id="000002", event_ts="2026-11-05T11:00:00Z")
     requests = _write_jsonl(tmp_path / "requests.jsonl", [payload, second])
-    truth_path = _write_jsonl(tmp_path / "ground_truth.jsonl", [_truth("000001", 1), _truth("000002", 0)])
+    truth_path = _write_jsonl(
+        tmp_path / "ground_truth.jsonl", [_truth("000001", 1), _truth("000002", 0)]
+    )
     unlabeled = read_authorizations(requests)
     assert LABEL not in unlabeled
     assert unlabeled.order_id.tolist() == ["000002", "000001"]
@@ -170,11 +238,15 @@ def test_labels_and_offline_metadata_cannot_change_features(payload, tmp_path):
     np.testing.assert_array_equal(processor.transform(first)[1], processor.transform(changed)[1])
 
 
-@pytest.mark.parametrize("rows,error", [
-    ([], "empty"), ([_truth(), _truth()], "Duplicate ground-truth"),
-    ([_truth("other")], "missing label.*extra txn_id"),
-    ([_truth(), _truth("extra")], "extra txn_id"),
-])
+@pytest.mark.parametrize(
+    "rows,error",
+    [
+        ([], "empty"),
+        ([_truth(), _truth()], "Duplicate ground-truth"),
+        ([_truth("other")], "missing label.*extra txn_id"),
+        ([_truth(), _truth("extra")], "extra txn_id"),
+    ],
+)
 def test_ground_truth_must_match_every_request_once(payload, tmp_path, rows, error):
     requests = _write_jsonl(tmp_path / "requests.jsonl", [payload])
     truth = _write_jsonl(tmp_path / "truth.jsonl", rows)
@@ -204,11 +276,15 @@ def test_blank_lines_allowed_and_equal_time_order_is_stable(payload, tmp_path):
     assert read_authorizations(path).order_id.tolist() == ["000002", "000001"]
 
 
-@pytest.mark.parametrize("line,error", [
-    ("{bad json", "invalid JSON"), ("[]", "must be an object"),
-    ('{"txn_id":"a","txn_id":"b"}', "Duplicate JSON field"),
-    ('{"value":NaN}', "Nonfinite JSON"),
-])
+@pytest.mark.parametrize(
+    "line,error",
+    [
+        ("{bad json", "invalid JSON"),
+        ("[]", "must be an object"),
+        ('{"txn_id":"a","txn_id":"b"}', "Duplicate JSON field"),
+        ('{"value":NaN}', "Nonfinite JSON"),
+    ],
+)
 def test_bad_jsonl_reports_path_and_line(tmp_path, line, error):
     path = tmp_path / "requests.jsonl"
     path.write_text("\n" + line + "\n")
@@ -224,16 +300,22 @@ def test_duplicate_request_ids_rejected_with_line_context(payload, tmp_path):
 
 def test_actual_generator_output_converts_without_modifying_files(tmp_path):
     source_root = Path(__file__).resolve().parents[2] / "generation_and_testing"
-    spec = importlib.util.spec_from_file_location("friend_authorization_generator", source_root / "simulator/generate.py")
+    spec = importlib.util.spec_from_file_location(
+        "friend_authorization_generator", source_root / "simulator/generate.py"
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     config = json.loads((source_root / "configs/default.json").read_text())
-    config.update(end="2026-11-05T03:00:00Z", baseline_orders_per_hour=20,
-                  customers_per_split=12, drops=[])
+    config.update(
+        end="2026-11-05T03:00:00Z", baseline_orders_per_hour=20, customers_per_split=12, drops=[]
+    )
     output = tmp_path / "generated"
     manifest = module.generate(deepcopy(config), output)
     for split in ("train", "validation", "test"):
-        requests, truth_path = output / split / "requests.jsonl", output / split / "ground_truth.jsonl"
+        requests, truth_path = (
+            output / split / "requests.jsonl",
+            output / split / "ground_truth.jsonl",
+        )
         before = requests.read_bytes(), truth_path.read_bytes()
         canonical = read_authorizations(requests, ground_truth_path=truth_path)
         truth = read_ground_truth(truth_path).set_index("txn_id")

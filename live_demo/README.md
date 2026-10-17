@@ -1,27 +1,30 @@
 # Live purchase demo
 
-Create new synthetic purchases online and send them, paced by a live clock, to the existing trained-model authorization API. No training files are read and no scores or decisions are invented by the simulator. Requests use the original authorization fields; all labels stay in a separate local file. No real payment processor is involved.
+Create synthetic purchases during a live run and submit them to the trained authorization API. The terminal displays actual API scores and simulated merchant decisions. Labels stay in separate local output files; no real payment processor is involved.
 
 ## Run
 
 First install the project and train a model using the [root guide](../README.md). From the repository root, start a **fresh** API in terminal 1:
 
-```powershell
-.venv\Scripts\python.exe -m uvicorn datathon_authorization.authorization.main:app --host 127.0.0.1 --port 8000 --workers 1
+```bash
+.venv/bin/python -m uvicorn datathon_authorization.authorization.main:app \
+  --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 In terminal 2:
 
-```powershell
-.venv\Scripts\python.exe -m live_demo
+```bash
+.venv/bin/python -m live_demo
 ```
 
-On macOS/Linux, replace `.venv\Scripts\python.exe` with `.venv/bin/python`. Start both terminals in the repository root. If the model lives elsewhere, set `SCALPER_MODEL_DIR` in terminal 1 before starting the API.
+On Windows PowerShell, replace `.venv/bin/python` with `.venv\Scripts\python.exe` and put multiline commands on one line. Start both terminals in the repository root. If the model lives elsewhere, set `SCALPER_MODEL_DIR` in terminal 1 before starting the API.
 
 The default is a **two-minute demonstration** with an average of two purchases per second, about 25% scalper purchases, and a fivefold release surge from seconds 30 through 50. Poisson arrivals create irregular gaps rather than a fixed metronome. These are expected rates and proportions, not exact counts. Ctrl+C stops and saves the partial summary.
 
-```powershell
-.venv\Scripts\python.exe -m live_demo --duration 180 --rate 3 --scalper-ratio 0.3 --drop-after 45 --drop-duration 30 --drop-multiplier 4 --seed 27
+```bash
+.venv/bin/python -m live_demo \
+  --duration 180 --rate 3 --scalper-ratio 0.3 \
+  --drop-after 45 --drop-duration 30 --drop-multiplier 4 --seed 27
 ```
 
 Use `--help` for all settings. Other controls are `--customers`, `--merchants` (at least two), `--events`, `--timeout`, `--url`, and `--output`. Set `--drop-multiplier 1` to disable the surge. The default output is a new timestamped folder under `artifacts/live_demo/`; an explicit output folder must not already exist.
@@ -66,11 +69,11 @@ Before sending purchases, the CLI checks readiness and requires empty API histor
 
 On HTTP/network failure, sending stops and partial logs remain. Requests are not automatically retried: after a timeout the server may already have observed the attempt. Restart before another run. Synthetic results do not establish accuracy on real payment traffic.
 
-## Verify
+## Tests
 
-```powershell
-.venv\Scripts\python.exe -m unittest live_demo.test_live_demo -v
-.venv\Scripts\python.exe -m pytest -q
+```bash
+.venv/bin/python -m unittest live_demo.test_live_demo -v
+.venv/bin/python -m pytest -q
 ```
 
 Focused checks exercise arrival scheduling, bursts, continuing campaign behavior, label isolation, deterministic inputs, pacing, partial failures, preflight checks, and overload reporting without waiting in real time. The API integration test sends online traffic through a trained detector and compares its decisions to offline scoring of the same ordered stream.

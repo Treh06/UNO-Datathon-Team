@@ -24,7 +24,9 @@ def _validated_pair(
     y = _finite_array(labels, "labels")
     scores = _finite_array(values, name)
     if y.ndim != 1 or scores.ndim != 1 or y.size == 0 or scores.size != y.size:
-        raise ValueError(f"labels and {name} must be nonempty one-dimensional arrays of equal length")
+        raise ValueError(
+            f"labels and {name} must be nonempty one-dimensional arrays of equal length"
+        )
     if not np.all((y == 0) | (y == 1)):
         raise ValueError("labels must be binary values (0 or 1)")
     if probabilities and np.any((scores < 0.0) | (scores > 1.0)):
@@ -119,7 +121,7 @@ def select_threshold(
 ) -> float:
     """Select a calibration cutoff over observed probabilities and 0.5.
 
-    With no precision target, maximize F1 as before. With a target, maximize
+    With no precision target, maximize F1. With a target, maximize
     recall among cutoffs meeting that precision. If no cutoff meets it, maximize
     precision and then recall. Remaining ties always favor the higher cutoff.
     The caller must report an unmet target explicitly rather than imply it was
@@ -142,15 +144,21 @@ def select_threshold(
     true_positives = positives - prefix_positives[starts]
     predicted_positives = y.size - starts
     if target_precision is not None:
-        precision = np.divide(true_positives, predicted_positives, out=np.zeros_like(true_positives),
-                              where=predicted_positives > 0)
+        precision = np.divide(
+            true_positives,
+            predicted_positives,
+            out=np.zeros_like(true_positives),
+            where=predicted_positives > 0,
+        )
         eligible = precision >= target_precision
         if not eligible.any():
             eligible = precision == precision.max()
         eligible &= true_positives == true_positives[eligible].max()
         return float(candidates[np.flatnonzero(eligible)[-1]])
     denominator = predicted_positives + positives
-    f1 = np.divide(2.0 * true_positives, denominator, out=np.zeros_like(true_positives), where=denominator > 0)
+    f1 = np.divide(
+        2.0 * true_positives, denominator, out=np.zeros_like(true_positives), where=denominator > 0
+    )
     return float(candidates[np.flatnonzero(f1 == f1.max())[-1]])
 
 

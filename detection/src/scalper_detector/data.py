@@ -14,7 +14,15 @@ LABEL = "is_scalper"
 LINK_COLUMNS = ("shipping_hash", "billing_hash", "email_hash", "device_id")
 REQUIRED_TEXT_COLUMNS = ("order_id", "card_id", "card_bin", "merchant_id", "category")
 TEXT_COLUMNS = (*REQUIRED_TEXT_COLUMNS, *LINK_COLUMNS, "event_id", "card_type")
-REQUIRED_COLUMNS = ("order_id", "timestamp", "card_id", "card_bin", "merchant_id", "category", "amount")
+REQUIRED_COLUMNS = (
+    "order_id",
+    "timestamp",
+    "card_id",
+    "card_bin",
+    "merchant_id",
+    "category",
+    "amount",
+)
 OPTIONAL_NUMERICS = {
     "quantity": (1.0, "quantity_available"),
     "card_age_days": (0.0, "card_age_known"),
@@ -24,24 +32,56 @@ OPTIONAL_NUMERICS = {
 AVAILABILITY_FLAGS = {column: flag for column, (_, flag) in OPTIONAL_NUMERICS.items()}
 AVAILABILITY_FLAGS["event_id"] = "event_id_known"
 NUMERIC_FEATURES = (
-    "amount", "quantity", "quantity_available", "card_age_days", "card_age_known",
-    "seconds_since_release", "release_time_known", "ticket_limit", "ticket_limit_known", "event_id_known",
-    "card_orders_1m", "card_orders_5m", "card_orders_1h",
-    "bin_orders_1m", "bin_orders_5m", "cluster_orders_1m", "cluster_orders_5m", "cluster_orders_1h",
-    "card_merchants_5m", "cluster_merchants_5m", "cluster_cards_1h", "linked_cards_count",
-    "shipping_linked_cards", "email_linked_cards", "device_linked_cards",
-    "seconds_since_previous", "interval_regularity", "basket_uniformity_5m", "hour_sin", "hour_cos",
-    "card_event_orders_5m", "cluster_event_orders_5m", "cluster_event_merchants_5m", "cluster_event_cards_5m",
-    "card_event_tickets_1h", "cluster_event_tickets_1h", "cluster_event_tickets_24h",
-    "cluster_event_quantity_coverage_1h", "cluster_event_limit_excess",
-    "cluster_distinct_events_5m", "cluster_same_event_order_fraction_5m", "cluster_event_identity_coverage_5m",
+    "amount",
+    "quantity",
+    "quantity_available",
+    "card_age_days",
+    "card_age_known",
+    "seconds_since_release",
+    "release_time_known",
+    "ticket_limit",
+    "ticket_limit_known",
+    "event_id_known",
+    "card_orders_1m",
+    "card_orders_5m",
+    "card_orders_1h",
+    "bin_orders_1m",
+    "bin_orders_5m",
+    "cluster_orders_1m",
+    "cluster_orders_5m",
+    "cluster_orders_1h",
+    "card_merchants_5m",
+    "cluster_merchants_5m",
+    "cluster_cards_1h",
+    "linked_cards_count",
+    "shipping_linked_cards",
+    "email_linked_cards",
+    "device_linked_cards",
+    "seconds_since_previous",
+    "interval_regularity",
+    "basket_uniformity_5m",
+    "hour_sin",
+    "hour_cos",
+    "card_event_orders_5m",
+    "cluster_event_orders_5m",
+    "cluster_event_merchants_5m",
+    "cluster_event_cards_5m",
+    "card_event_tickets_1h",
+    "cluster_event_tickets_1h",
+    "cluster_event_tickets_24h",
+    "cluster_event_quantity_coverage_1h",
+    "cluster_event_limit_excess",
+    "cluster_distinct_events_5m",
+    "cluster_same_event_order_fraction_5m",
+    "cluster_event_identity_coverage_5m",
 )
 
 
 def read_events(path: str, *, require_labels: bool = False) -> pd.DataFrame:
     """Read tokenized identifiers as strings, preserving leading zeros."""
-    return validate_events(pd.read_csv(path, dtype={c: "string" for c in TEXT_COLUMNS}),
-                           require_labels=require_labels)
+    return validate_events(
+        pd.read_csv(path, dtype={c: "string" for c in TEXT_COLUMNS}), require_labels=require_labels
+    )
 
 
 def _numbers(values: pd.Series, name: str) -> pd.Series:
@@ -59,7 +99,9 @@ def _numbers(values: pd.Series, name: str) -> pd.Series:
 def _ticket_categories(values: pd.Series) -> pd.Series:
     canonical = values.astype(str).str.strip().str.lower()
     if not canonical.eq("tickets").all():
-        raise ValueError("Only category='tickets' is supported; non-ticket orders cannot be scored.")
+        raise ValueError(
+            "Only category='tickets' is supported; non-ticket orders cannot be scored."
+        )
     return canonical
 
 
@@ -89,7 +131,9 @@ def validate_events(frame: pd.DataFrame, *, require_labels: bool = False) -> pd.
     df["event_id_known"] = df.event_id.ne("").astype(int)
     if "card_type" not in df:
         df["card_type"] = "unknown"
-    df["card_type"] = df["card_type"].fillna("unknown").astype(str).str.strip().replace("", "unknown")
+    df["card_type"] = (
+        df["card_type"].fillna("unknown").astype(str).str.strip().replace("", "unknown")
+    )
     if df.order_id.duplicated().any():
         raise ValueError("Duplicate order_id values are not allowed.")
     try:
@@ -109,10 +153,14 @@ def validate_events(frame: pd.DataFrame, *, require_labels: bool = False) -> pd.
         present = ~absent
         values = _numbers(df.loc[present, column], column)
         if values.le(0).any() or (values % 1 != 0).any():
-            raise ValueError(f"{column} must contain positive whole counts including the current order.")
+            raise ValueError(
+                f"{column} must contain positive whole counts including the current order."
+            )
         df[column] = pd.to_numeric(df[column].mask(absent, np.nan), errors="raise").astype(float)
     if df[population_columns[0]].notna().ne(df[population_columns[1]].notna()).any():
-        raise ValueError("Supply both processor_bin_orders_1m and processor_bin_orders_5m, or neither.")
+        raise ValueError(
+            "Supply both processor_bin_orders_1m and processor_bin_orders_5m, or neither."
+        )
     if df[population_columns[1]].lt(df[population_columns[0]]).any():
         raise ValueError("processor_bin_orders_5m cannot be less than processor_bin_orders_1m.")
     for column, (default, flag) in OPTIONAL_NUMERICS.items():
@@ -136,7 +184,9 @@ def validate_events(frame: pd.DataFrame, *, require_labels: bool = False) -> pd.
     if available_limits.le(0).any() or (available_limits % 1 != 0).any():
         raise ValueError("ticket_limit must contain positive whole units when known.")
     if require_labels and LABEL not in df:
-        raise ValueError("Training requires an is_scalper column with independently verified per-order 0/1 labels.")
+        raise ValueError(
+            "Training requires an is_scalper column with independently verified per-order 0/1 labels."
+        )
     if LABEL in df:
         if df[LABEL].isna().any() or not df[LABEL].isin([0, 1]).all():
             raise ValueError("is_scalper must contain only 0 or 1 per order.")
@@ -153,7 +203,7 @@ def validate_events(frame: pd.DataFrame, *, require_labels: bool = False) -> pd.
 class _IdentityGraph:
     """Union-find over cards connected through observed nonempty identities."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.parent: dict[str, str] = {}
         self.members: dict[str, set[str]] = {}
         self.identities: dict[tuple[str, str], set[str]] = defaultdict(set)
@@ -201,6 +251,80 @@ class _IdentityGraph:
         return len(self.identities[self.key(column, value)]) if value else 0
 
 
+def _event_features(
+    order: dict,
+    *,
+    card_recent: list[dict],
+    cluster_recent: list[dict],
+    card_hour: list[dict],
+    cluster_hour: list[dict],
+    cluster_history: deque,
+) -> dict[str, float]:
+    """Summarize same-event evidence from windows that include the current order.
+
+    Orders without event IDs lower identity coverage. Missing quantities
+    contribute zero tickets, with a separate coverage feature retaining that
+    uncertainty. The histories have already been trimmed to their causal windows.
+    """
+    event_features = {
+        name: 0.0
+        for name in (
+            "card_event_orders_5m",
+            "cluster_event_orders_5m",
+            "cluster_event_merchants_5m",
+            "cluster_event_cards_5m",
+            "card_event_tickets_1h",
+            "cluster_event_tickets_1h",
+            "cluster_event_tickets_24h",
+            "cluster_event_quantity_coverage_1h",
+            "cluster_event_limit_excess",
+        )
+    }
+    target = order["event_id"]
+    if target:
+        card_event_recent = [item for item in card_recent if item["event"] == target]
+        cluster_event_recent = [item for item in cluster_recent if item["event"] == target]
+        card_event_hour = [item for item in card_hour if item["event"] == target]
+        cluster_event_hour = [item for item in cluster_hour if item["event"] == target]
+        cluster_event_day = [item for item in cluster_history if item["event"] == target]
+        tickets_day = sum(item["known_quantity"] for item in cluster_event_day)
+        event_features.update(
+            {
+                "card_event_orders_5m": len(card_event_recent),
+                "cluster_event_orders_5m": len(cluster_event_recent),
+                "cluster_event_merchants_5m": len(
+                    {item["merchant"] for item in cluster_event_recent}
+                ),
+                "cluster_event_cards_5m": len({item["card"] for item in cluster_event_recent}),
+                "card_event_tickets_1h": sum(item["known_quantity"] for item in card_event_hour),
+                "cluster_event_tickets_1h": sum(
+                    item["known_quantity"] for item in cluster_event_hour
+                ),
+                "cluster_event_tickets_24h": tickets_day,
+                "cluster_event_quantity_coverage_1h": (
+                    sum(item["quantity_available"] for item in cluster_event_hour)
+                    / len(cluster_event_hour)
+                ),
+                "cluster_event_limit_excess": max(0, tickets_day - order["ticket_limit"])
+                if order["ticket_limit_known"]
+                else 0.0,
+            }
+        )
+    known_event_recent = [item for item in cluster_recent if item["event"]]
+    event_features.update(
+        {
+            "cluster_distinct_events_5m": len({item["event"] for item in known_event_recent}),
+            "cluster_same_event_order_fraction_5m": (
+                event_features["cluster_event_orders_5m"] / len(known_event_recent)
+                if target and known_event_recent
+                else 0.0
+            ),
+            "cluster_event_identity_coverage_5m": len(known_event_recent) / len(cluster_recent),
+        }
+    )
+    return event_features
+
+
 class PaymentFeatureStore:
     """Online causal payment features. Counts include the current order.
 
@@ -208,7 +332,7 @@ class PaymentFeatureStore:
     and never form graph links. card_id is an upstream token, not a raw PAN.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.graph = _IdentityGraph()
         self.card_events: dict[str, deque] = defaultdict(deque)
         self.bin_events: dict[str, deque] = defaultdict(deque)
@@ -244,9 +368,15 @@ class PaymentFeatureStore:
         previous = self.card_last_time.get(card)
         self.card_last_time[card] = time
         self.card_totals[card] += 1
-        event = {"time": time, "merchant": order["merchant_id"], "card": card, "amount": order["amount"],
-                 "event": order["event_id"], "quantity_available": bool(order["quantity_available"]),
-                 "known_quantity": order["quantity"] if order["quantity_available"] else 0.0}
+        event = {
+            "time": time,
+            "merchant": order["merchant_id"],
+            "card": card,
+            "amount": order["amount"],
+            "event": order["event_id"],
+            "quantity_available": bool(order["quantity_available"]),
+            "known_quantity": order["quantity"] if order["quantity_available"] else 0.0,
+        }
         card_history, bin_history = self.card_events[card], self.bin_events[order["card_bin"]]
         cluster_history = self.cluster_events[root]
         for history, span in ((card_history, 86400), (bin_history, 300), (cluster_history, 86400)):
@@ -267,65 +397,54 @@ class PaymentFeatureStore:
             regularity = 0.0
         amounts = np.asarray([item["amount"] for item in cluster_recent])
         normalized_amounts = amounts / amounts.max()
-        uniformity = (1 / (1 + float(normalized_amounts.std()) / float(normalized_amounts.mean()))
-                      if len(amounts) >= 2 else 0.0)
-        event_features = {name: 0.0 for name in (
-            "card_event_orders_5m", "cluster_event_orders_5m", "cluster_event_merchants_5m",
-            "cluster_event_cards_5m", "card_event_tickets_1h", "cluster_event_tickets_1h",
-            "cluster_event_tickets_24h", "cluster_event_quantity_coverage_1h", "cluster_event_limit_excess",
-        )}
-        target = order["event_id"]
-        if target:
-            card_event_recent = [item for item in card_recent if item["event"] == target]
-            cluster_event_recent = [item for item in cluster_recent if item["event"] == target]
-            card_event_hour = [item for item in card_hour if item["event"] == target]
-            cluster_event_hour = [item for item in cluster_hour if item["event"] == target]
-            cluster_event_day = [item for item in cluster_history if item["event"] == target]
-            tickets_day = sum(item["known_quantity"] for item in cluster_event_day)
-            event_features.update({
-                "card_event_orders_5m": len(card_event_recent),
-                "cluster_event_orders_5m": len(cluster_event_recent),
-                "cluster_event_merchants_5m": len({item["merchant"] for item in cluster_event_recent}),
-                "cluster_event_cards_5m": len({item["card"] for item in cluster_event_recent}),
-                "card_event_tickets_1h": sum(item["known_quantity"] for item in card_event_hour),
-                "cluster_event_tickets_1h": sum(item["known_quantity"] for item in cluster_event_hour),
-                "cluster_event_tickets_24h": tickets_day,
-                "cluster_event_quantity_coverage_1h": (
-                    sum(item["quantity_available"] for item in cluster_event_hour) / len(cluster_event_hour)),
-                "cluster_event_limit_excess": max(0, tickets_day - order["ticket_limit"])
-                    if order["ticket_limit_known"] else 0.0,
-            })
-        known_event_recent = [item for item in cluster_recent if item["event"]]
-        event_features.update({
-            "cluster_distinct_events_5m": len({item["event"] for item in known_event_recent}),
-            "cluster_same_event_order_fraction_5m": (
-                event_features["cluster_event_orders_5m"] / len(known_event_recent)
-                if target and known_event_recent else 0.0),
-            "cluster_event_identity_coverage_5m": len(known_event_recent) / len(cluster_recent),
-        })
+        uniformity = (
+            1 / (1 + float(normalized_amounts.std()) / float(normalized_amounts.mean()))
+            if len(amounts) >= 2
+            else 0.0
+        )
+        event_features = _event_features(
+            order,
+            card_recent=card_recent,
+            cluster_recent=cluster_recent,
+            card_hour=card_hour,
+            cluster_hour=cluster_hour,
+            cluster_history=cluster_history,
+        )
         hour = order["timestamp"].hour + order["timestamp"].minute / 60
         return {
             **order,
             "card_orders_1m": sum(item["time"] >= one_minute for item in card_history),
-            "card_orders_5m": len(card_recent), "card_orders_1h": len(card_hour),
-            "bin_orders_1m": (int(order["processor_bin_orders_1m"]) if pd.notna(order["processor_bin_orders_1m"])
-                              else sum(item["time"] >= one_minute for item in bin_history)),
-            "bin_orders_5m": (int(order["processor_bin_orders_5m"]) if pd.notna(order["processor_bin_orders_5m"])
-                              else len(bin_history)),
+            "card_orders_5m": len(card_recent),
+            "card_orders_1h": len(card_hour),
+            "bin_orders_1m": (
+                int(order["processor_bin_orders_1m"])
+                if pd.notna(order["processor_bin_orders_1m"])
+                else sum(item["time"] >= one_minute for item in bin_history)
+            ),
+            "bin_orders_5m": (
+                int(order["processor_bin_orders_5m"])
+                if pd.notna(order["processor_bin_orders_5m"])
+                else len(bin_history)
+            ),
             "cluster_orders_1m": sum(item["time"] >= one_minute for item in cluster_history),
-            "cluster_orders_5m": len(cluster_recent), "cluster_orders_1h": len(cluster_hour),
+            "cluster_orders_5m": len(cluster_recent),
+            "cluster_orders_1h": len(cluster_hour),
             "card_merchants_5m": len({item["merchant"] for item in card_recent}),
             "cluster_merchants_5m": len({item["merchant"] for item in cluster_recent}),
             "cluster_cards_1h": len({item["card"] for item in cluster_hour}),
             "linked_cards_count": len(self.graph.members[root]),
-            "shipping_linked_cards": self.graph.identity_count("shipping_hash", order["shipping_hash"]),
+            "shipping_linked_cards": self.graph.identity_count(
+                "shipping_hash", order["shipping_hash"]
+            ),
             "email_linked_cards": self.graph.identity_count("email_hash", order["email_hash"]),
             "device_linked_cards": self.graph.identity_count("device_id", order["device_id"]),
             "seconds_since_previous": 0.0 if previous is None else (time - previous) / 1e9,
-            "interval_regularity": regularity, "basket_uniformity_5m": uniformity,
+            "interval_regularity": regularity,
+            "basket_uniformity_5m": uniformity,
             "hour_sin": float(np.sin(2 * np.pi * hour / 24)),
             "hour_cos": float(np.cos(2 * np.pi * hour / 24)),
-            "history_count": self.card_totals[card], "cluster_id": root,
+            "history_count": self.card_totals[card],
+            "cluster_id": root,
             **event_features,
         }
 
@@ -357,7 +476,9 @@ def split_accounts(frame: pd.DataFrame, seed: int = 42) -> dict[str, pd.DataFram
     for label in (0, 1):
         component_ids = groups.index[groups.eq(label)].to_numpy().copy()
         if len(component_ids) < 4:
-            raise ValueError("Provide at least four independent linked-card components per class for train/validation/calibration/test.")
+            raise ValueError(
+                "Provide at least four independent linked-card components per class for train/validation/calibration/test."
+            )
         rng.shuffle(component_ids)
         validation_count = max(1, int(round(len(component_ids) * 0.15)))
         calibration_count = max(1, int(round(len(component_ids) * 0.10)))
@@ -369,7 +490,9 @@ def split_accounts(frame: pd.DataFrame, seed: int = 42) -> dict[str, pd.DataFram
         ids["calibration"].extend(component_ids[validation_end:calibration_end])
         ids["test"].extend(component_ids[calibration_end:test_end])
         ids["train"].extend(component_ids[test_end:])
-    return {name: df[df.split_group.isin(values)].reset_index(drop=True) for name, values in ids.items()}
+    return {
+        name: df[df.split_group.isin(values)].reset_index(drop=True) for name, values in ids.items()
+    }
 
 
 def numeric_features(frame: pd.DataFrame) -> np.ndarray:
@@ -386,6 +509,7 @@ class EventPreprocessor:
     vocabularies: dict[str, list[str]] = field(default_factory=dict)
 
     def fit(self, frame: pd.DataFrame) -> "EventPreprocessor":
+        """Learn numeric scales and categorical values from training orders only."""
         df = engineer_events(frame)
         values = numeric_features(df)
         # Normalize first so legitimate finite, large payment amounts cannot
@@ -399,10 +523,15 @@ class EventPreprocessor:
 
     @property
     def feature_names(self) -> list[str]:
-        return list(NUMERIC_FEATURES) + [f"{column}={value}" for column, values in self.vocabularies.items()
-                                       for value in ["<unknown>", *values]]
+        """Return the persisted column order shared by both model branches."""
+        return list(NUMERIC_FEATURES) + [
+            f"{column}={value}"
+            for column, values in self.vocabularies.items()
+            for value in ["<unknown>", *values]
+        ]
 
     def transform_engineered(self, frame: pd.DataFrame) -> np.ndarray:
+        """Encode existing causal features without updating any order history."""
         if not self.mean:
             raise ValueError("Fit the preprocessor on training data before transforming.")
         frame = frame.copy()
@@ -421,22 +550,31 @@ class EventPreprocessor:
         return np.concatenate(features, axis=1).astype(np.float32)
 
     def transform(self, frame: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
+        """Build fresh causal history and return ordered rows and model inputs."""
         df = engineer_events(frame)
         return df, self.transform_engineered(df)
 
     def to_dict(self) -> dict:
+        """Return preprocessing state suitable for the model metadata JSON."""
         return {"mean": self.mean, "scale": self.scale, "vocabularies": self.vocabularies}
 
     @classmethod
     def from_dict(cls, values: dict) -> "EventPreprocessor":
+        """Restore the scales and vocabularies saved during training."""
         return cls(mean=values["mean"], scale=values["scale"], vocabularies=values["vocabularies"])
 
 
 class ActivitySequences(Dataset):
     """Right-padded histories of prior orders from the same card, including now."""
 
-    def __init__(self, frame: pd.DataFrame, features: np.ndarray, sequence_length: int = 7,
-                 *, latest_only: bool = False):
+    def __init__(
+        self,
+        frame: pd.DataFrame,
+        features: np.ndarray,
+        sequence_length: int = 7,
+        *,
+        latest_only: bool = False,
+    ) -> None:
         if sequence_length < 1:
             raise ValueError("sequence_length must be positive.")
         if features.ndim != 2 or len(frame) != len(features):
@@ -450,7 +588,9 @@ class ActivitySequences(Dataset):
             self.offsets[position] = len(self.card_positions[card])
             self.card_positions[card].append(position)
         self.endpoints = np.asarray(
-            sorted(positions[-1] for positions in self.card_positions.values()) if latest_only else range(len(frame)),
+            sorted(positions[-1] for positions in self.card_positions.values())
+            if latest_only
+            else range(len(frame)),
             dtype=np.int64,
         )
 
@@ -461,7 +601,7 @@ class ActivitySequences(Dataset):
         end = int(self.endpoints[index])
         card = self.frame.iloc[end].card_id
         offset = int(self.offsets[end]) + 1
-        positions = self.card_positions[card][max(0, offset - self.sequence_length):offset]
+        positions = self.card_positions[card][max(0, offset - self.sequence_length) : offset]
         length = len(positions)
         window = torch.zeros((self.sequence_length, self.features.shape[1]), dtype=torch.float32)
         window[:length] = self.features[positions]

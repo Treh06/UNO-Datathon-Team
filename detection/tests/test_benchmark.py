@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import math
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
@@ -39,12 +39,21 @@ class RecordingDetector:
 @pytest.fixture
 def orders():
     origin = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    return pd.DataFrame([
-        {"order_id": f"order-{index}", "timestamp": (origin + timedelta(seconds=index * 120)).isoformat(),
-         "card_id": "tokenized-card", "card_bin": "001234", "merchant_id": f"site-{index % 3}",
-         "category": "tickets", "amount": 100.0, "is_scalper": index % 2}
-        for index in range(6)
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "order_id": f"order-{index}",
+                "timestamp": (origin + timedelta(seconds=index * 120)).isoformat(),
+                "card_id": "tokenized-card",
+                "card_bin": "001234",
+                "merchant_id": f"site-{index % 3}",
+                "category": "tickets",
+                "amount": 100.0,
+                "is_scalper": index % 2,
+            }
+            for index in range(6)
+        ]
+    )
 
 
 def test_replay_counts_warmup_and_labels_cpu_backend_honestly(orders):
@@ -60,8 +69,10 @@ def test_replay_counts_warmup_and_labels_cpu_backend_honestly(orders):
         replay = report[key]
         assert replay["orders_measured"] == 3
         assert replay["warmup_orders"] == 2
-        for statistic, quantiles in (("end_to_end_ms", ("p50", "p95", "p99")),
-                                    ("neural_only_ms", ("p50", "p95"))):
+        for statistic, quantiles in (
+            ("end_to_end_ms", ("p50", "p95", "p99")),
+            ("neural_only_ms", ("p50", "p95")),
+        ):
             values = [replay[statistic][quantile] for quantile in quantiles]
             assert all(math.isfinite(value) and value >= 0 for value in values)
             assert values == sorted(values)
@@ -75,8 +86,9 @@ def test_replay_counts_warmup_and_labels_cpu_backend_honestly(orders):
 
 def test_sparse_trace_burst_reaches_requested_offered_rate_and_rebuilds_causal_state(orders):
     detector = RecordingDetector()
-    report = benchmark_orders(detector, orders, max_orders=3, warmup=2,
-                              burst_multiplier=10, burst_orders_per_second=1500)
+    report = benchmark_orders(
+        detector, orders, max_orders=3, warmup=2, burst_multiplier=10, burst_orders_per_second=1500
+    )
     normal = report["normal"]
     burst = report["simulated_drop_day_burst"]
     assert report["burst_requested_min_orders_per_second"] == 1500
@@ -124,17 +136,31 @@ def test_insufficient_warmup_data_rejected(orders):
         benchmark_orders(RecordingDetector(), orders.iloc[:2], warmup=2)
 
 
-@pytest.mark.parametrize("option,value", [
-    ("max_orders", 0), ("max_orders", -1), ("max_orders", 1.5), ("max_orders", True),
-    ("warmup", -1), ("warmup", 1.5), ("warmup", True),
-    ("burst_multiplier", 0.5), ("burst_multiplier", float("nan")),
-    ("burst_multiplier", float("inf")), ("burst_multiplier", True),
-    ("burst_multiplier", "bad"), ("burst_multiplier", None),
-    ("burst_orders_per_second", 0), ("burst_orders_per_second", -1),
-    ("burst_orders_per_second", float("nan")), ("burst_orders_per_second", float("inf")),
-    ("burst_orders_per_second", True), ("burst_orders_per_second", "bad"),
-    ("burst_orders_per_second", None),
-])
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("max_orders", 0),
+        ("max_orders", -1),
+        ("max_orders", 1.5),
+        ("max_orders", True),
+        ("warmup", -1),
+        ("warmup", 1.5),
+        ("warmup", True),
+        ("burst_multiplier", 0.5),
+        ("burst_multiplier", float("nan")),
+        ("burst_multiplier", float("inf")),
+        ("burst_multiplier", True),
+        ("burst_multiplier", "bad"),
+        ("burst_multiplier", None),
+        ("burst_orders_per_second", 0),
+        ("burst_orders_per_second", -1),
+        ("burst_orders_per_second", float("nan")),
+        ("burst_orders_per_second", float("inf")),
+        ("burst_orders_per_second", True),
+        ("burst_orders_per_second", "bad"),
+        ("burst_orders_per_second", None),
+    ],
+)
 def test_invalid_benchmark_options_raise_clear_value_errors(orders, option, value):
     arguments = {"warmup": 0, option: value}
     with pytest.raises(ValueError, match=option):

@@ -1,11 +1,11 @@
 """Replay validates whole inputs, stops on transport errors, and isolates truth."""
 
-from copy import deepcopy
-from io import BytesIO
 import json
-from pathlib import Path
 import subprocess
 import sys
+from copy import deepcopy
+from io import BytesIO
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 import pytest
@@ -17,13 +17,25 @@ from datathon_authorization import replay
 def requests():
     return [
         {
-            "txn_id": f"T{number:010d}", "event_ts": f"2026-11-05T12:00:{number:02d}Z",
-            "card_token": "tok_replay_test", "bin": "900001", "card_type": "credit",
-            "card_issue_date": "2026-01-01", "merchant_id": "M0001", "mcc": "7922",
-            "product_category": "tickets", "event_id": "EVT_0001", "quantity": 2,
-            "amount": "90.00", "currency": "USD", "ship_addr_hash": "ship_1",
-            "bill_addr_hash": "bill_1", "email_hash": "email_1", "device_id": "device_1",
-            "ip_prefix": "192.0.2.0/24", "channel": "web",
+            "txn_id": f"T{number:010d}",
+            "event_ts": f"2026-11-05T12:00:{number:02d}Z",
+            "card_token": "tok_replay_test",
+            "bin": "900001",
+            "card_type": "credit",
+            "card_issue_date": "2026-01-01",
+            "merchant_id": "M0001",
+            "mcc": "7922",
+            "product_category": "tickets",
+            "event_id": "EVT_0001",
+            "quantity": 2,
+            "amount": "90.00",
+            "currency": "USD",
+            "ship_addr_hash": "ship_1",
+            "bill_addr_hash": "bill_1",
+            "email_hash": "email_1",
+            "device_id": "device_1",
+            "ip_prefix": "192.0.2.0/24",
+            "channel": "web",
         }
         for number in range(1, 4)
     ]
@@ -31,16 +43,23 @@ def requests():
 
 def _write_requests(path, rows, *, array=False):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(rows) if array else "\n".join(json.dumps(row) for row in rows) + "\n")
+    path.write_text(
+        json.dumps(rows) if array else "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
     return path
 
 
 def _response(payload, *, probability=0.8, flag=True, threshold=0.5):
     return {
-        "txn_id": payload["txn_id"], "authorization_status": "REVIEW", "risk_score": 80,
-        "reason_codes": ["same_event_cross_site_buying"], "processed_ts": "2026-11-05T13:00:00Z",
-        "scalper_probability": probability, "flagged_for_review": flag,
-        "decision_threshold": threshold, "model_result": {"confidence_tier": "limited"},
+        "txn_id": payload["txn_id"],
+        "authorization_status": "REVIEW",
+        "risk_score": 80,
+        "reason_codes": ["same_event_cross_site_buying"],
+        "processed_ts": "2026-11-05T13:00:00Z",
+        "scalper_probability": probability,
+        "flagged_for_review": flag,
+        "decision_threshold": threshold,
+        "model_result": {"confidence_tier": "limited"},
     }
 
 
@@ -64,19 +83,32 @@ def _http(monkeypatch, handler=None):
 
     def send(request, *, timeout):
         payload = json.loads(request.data)
-        calls.append({"url": request.full_url, "payload": payload, "timeout": timeout,
-                      "method": request.get_method()})
-        return handler(payload, len(calls)) if handler is not None else _HTTPResponse(_response(payload))
+        calls.append(
+            {
+                "url": request.full_url,
+                "payload": payload,
+                "timeout": timeout,
+                "method": request.get_method(),
+            }
+        )
+        return (
+            handler(payload, len(calls))
+            if handler is not None
+            else _HTTPResponse(_response(payload))
+        )
 
     monkeypatch.setattr(replay, "urlopen", send)
     return calls
 
 
 def _truth(path, rows):
-    return _write_requests(path, [
-        {"txn_id": txn_id, "is_scalper": label, "actor_id": f"actor-{number}", "tactic": tactic}
-        for number, (txn_id, label, tactic) in enumerate(rows)
-    ])
+    return _write_requests(
+        path,
+        [
+            {"txn_id": txn_id, "is_scalper": label, "actor_id": f"actor-{number}", "tactic": tactic}
+            for number, (txn_id, label, tactic) in enumerate(rows)
+        ],
+    )
 
 
 def test_importing_replay_sends_no_requests():
@@ -86,20 +118,29 @@ def test_importing_replay_sends_no_requests():
         "urllib.request.urlopen = forbidden\n"
         "import datathon_authorization.replay\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[2],
-                            capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
 
 
 @pytest.mark.parametrize("array", [False, True])
 def test_json_array_and_jsonl_replay_preserve_order_and_save_full_responses(
-    tmp_path, requests, monkeypatch, array,
+    tmp_path,
+    requests,
+    monkeypatch,
+    array,
 ):
     source = _write_requests(tmp_path / "requests.json", requests, array=array)
     destination = tmp_path / "responses.jsonl"
     calls = _http(monkeypatch)
-    results = replay.replay_requests(source, destination, url="http://example.test/api", timeout=4.5)
+    results = replay.replay_requests(
+        source, destination, url="http://example.test/api", timeout=4.5
+    )
     saved = [json.loads(line) for line in destination.read_text().splitlines()]
     assert saved == results
     assert [row["txn_id"] for row in saved] == [row["txn_id"] for row in requests]
@@ -143,10 +184,18 @@ def test_bad_later_input_prevents_every_http_call(tmp_path, requests, monkeypatc
     assert "Error:" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("text", [
-    "", "[]", "[1]", "not json", '[{"txn_id":"a","txn_id":"b"}]',
-    '{"amount":NaN}', '{"amount":Infinity}',
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "[]",
+        "[1]",
+        "not json",
+        '[{"txn_id":"a","txn_id":"b"}]',
+        '{"amount":NaN}',
+        '{"amount":Infinity}',
+    ],
+)
 def test_strict_json_input_errors_prevent_http(tmp_path, monkeypatch, text):
     source = tmp_path / "input.json"
     source.write_text(text)
@@ -158,7 +207,11 @@ def test_strict_json_input_errors_prevent_http(tmp_path, monkeypatch, text):
 
 @pytest.mark.parametrize("status", [201, 409, 422, 500])
 def test_http_errors_exit_nonzero_and_stop_before_later_requests(
-    tmp_path, requests, monkeypatch, capsys, status,
+    tmp_path,
+    requests,
+    monkeypatch,
+    capsys,
+    status,
 ):
     source = _write_requests(tmp_path / "requests.jsonl", requests)
     destination = tmp_path / "responses.jsonl"
@@ -166,8 +219,13 @@ def test_http_errors_exit_nonzero_and_stop_before_later_requests(
     def fail(payload, number):
         if status == 201:
             return _HTTPResponse(_response(payload), status=status)
-        raise HTTPError("http://example.test/authorize", status, "failure", {},
-                        BytesIO(b'{"detail":"request rejected"}'))
+        raise HTTPError(
+            "http://example.test/authorize",
+            status,
+            "failure",
+            {},
+            BytesIO(b'{"detail":"request rejected"}'),
+        )
 
     calls = _http(monkeypatch, fail)
     with pytest.raises(SystemExit) as error:
@@ -182,9 +240,14 @@ def test_http_errors_exit_nonzero_and_stop_before_later_requests(
         assert "Restart the server" in message and "in-memory session" in message
 
 
-@pytest.mark.parametrize("failure", [URLError("offline"), TimeoutError("timed out"), OSError("reset")])
+@pytest.mark.parametrize(
+    "failure", [URLError("offline"), TimeoutError("timed out"), OSError("reset")]
+)
 def test_network_failure_preserves_completed_responses_and_stops(
-    tmp_path, requests, monkeypatch, failure,
+    tmp_path,
+    requests,
+    monkeypatch,
+    failure,
 ):
     source = _write_requests(tmp_path / "requests.jsonl", requests)
     destination = tmp_path / "responses.jsonl"
@@ -226,17 +289,24 @@ def test_incompatible_api_response_stops_replay(tmp_path, requests, monkeypatch,
 
 
 def test_offline_evaluation_joins_exact_ids_and_uses_actual_server_flags(tmp_path, requests):
-    truth = _truth(tmp_path / "truth.jsonl", [
-        (requests[2]["txn_id"], 0, "normal"),
-        (requests[0]["txn_id"], 1, "shared_address_ring"),
-        (requests[1]["txn_id"], 0, "legit_bulk"),
-    ])
+    truth = _truth(
+        tmp_path / "truth.jsonl",
+        [
+            (requests[2]["txn_id"], 0, "normal"),
+            (requests[0]["txn_id"], 1, "shared_address_ring"),
+            (requests[1]["txn_id"], 0, "legit_bulk"),
+        ],
+    )
     # Deliberately disagree with a 0.5 cutoff: confusion counts must use actual
     # server flags, while proper probability metrics must retain probabilities.
-    responses = [_response(requests[0], probability=0.9, flag=False),
-                 _response(requests[1], probability=0.2, flag=True),
-                 _response(requests[2], probability=0.1, flag=False)]
-    report = replay.evaluate_responses(responses, truth, requests_path=tmp_path / "test/requests.jsonl")
+    responses = [
+        _response(requests[0], probability=0.9, flag=False),
+        _response(requests[1], probability=0.2, flag=True),
+        _response(requests[2], probability=0.1, flag=False),
+    ]
+    report = replay.evaluate_responses(
+        responses, truth, requests_path=tmp_path / "test/requests.jsonl"
+    )
     assert report["overall"]["confusion_matrix"] == {"tn": 1, "fp": 1, "fn": 1, "tp": 0}
     assert report["overall"]["brier_score"] == pytest.approx(0.02)
     assert report["per_tactic"]["shared_address_ring"]["recall"] == 0
@@ -262,7 +332,10 @@ def test_offline_evaluation_rejects_nonexact_truth_ids(tmp_path, requests, probl
 
 
 def test_truth_is_read_only_after_response_output_is_complete(
-    tmp_path, requests, monkeypatch, capsys,
+    tmp_path,
+    requests,
+    monkeypatch,
+    capsys,
 ):
     import scalper_detector.authorizations as authorizations
 
@@ -278,8 +351,18 @@ def test_truth_is_read_only_after_response_output_is_complete(
         return original(path)
 
     monkeypatch.setattr(authorizations, "read_ground_truth", offline_only)
-    replay.main(["--input", str(source), "--output", str(destination),
-                 "--ground-truth", str(truth), "--evaluation-output", str(evaluation)])
+    replay.main(
+        [
+            "--input",
+            str(source),
+            "--output",
+            str(destination),
+            "--ground-truth",
+            str(truth),
+            "--evaluation-output",
+            str(evaluation),
+        ]
+    )
     assert json.loads(evaluation.read_text())["overall"]["n_samples"] == len(requests)
     assert all(not {"is_scalper", "actor_id", "tactic"} & set(call["payload"]) for call in calls)
     assert "offline evaluation" in capsys.readouterr().out

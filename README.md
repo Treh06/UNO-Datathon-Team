@@ -1,38 +1,49 @@
-# Ticket-scalper detection: generate, train, authorize
+# Ticket scalper detection
 
-Three components work together: the **generator** creates synthetic ticket-payment requests, the **detector** learns scalping patterns, and the **authorization API** scores new requests using that trained model. It returns a probability, observed evidence, and a simulated APPROVE, REVIEW, or DECLINE decision.
+A payment-side prototype for detecting suspicious ticket purchases across participating ticketing sites. A PyTorch LSTM and random forest score each request using the activity available at that time. A local authorization API returns the risk estimate, observed evidence, and a simulated merchant decision.
+
+The repository includes synthetic data generation, model training and evaluation, HTTP replay, and a paced live demo. All decisions are advisory: no payment, cancellation, or refund is executed. Synthetic results require separate validation on representative ticket traffic.
 
 ```mermaid
 flowchart LR
-    G[Generator] --> D[Train and calibrate detector]
-    G --> R[Replay test requests]
-    D --> A[Authorization API]
+    G[Synthetic requests] --> T[Train and calibrate detector]
+    G --> R[Replay held-out requests]
+    T --> A[Authorization API]
+    L[Live purchase demo] --> A
     R --> A
-    A --> S[Scores and simulated decisions]
-    S --> E[Offline evaluation against separate truth]
+    A --> D[Risk, evidence, simulated decision]
 ```
 
-- [Generator guide](generation_and_testing/README.md): configuration, tactics, and source splits. Its original README is preserved.
-- [Detector guide](detection/README.md): model features, CSV workflows, interpretation, and deployment limits.
-- [Authorization guide](datathon_authorization/README.md): HTTP contract, state, validation, and replay.
-- [Live demo guide](live_demo/README.md): newly generated purchases arriving over time, release surges, and live model decisions.
+| Component | Purpose |
+| --- | --- |
+| [Generator](generation_and_testing/README.md) | Seeded request streams, separate labels, and chronological source splits. |
+| [Detector](detection/README.md) | Causal features, ensemble training, CSV scoring, and ranked review. |
+| [Authorization API](datathon_authorization/README.md) | Request validation, shared scoring history, HTTP responses, and replay. |
+| [Live demo](live_demo/README.md) | New purchases arriving over time, release surges, and live decisions. |
 
-Run all commands below **from the repository root** on `feature/data-generator`. No generated dataset or pretrained model is committed. The API is a local demonstration: no bank is contacted and no payment, cancellation, or refund executes.
+## Quick start
 
-## 1. Install
+Requires **Python 3.10 or later**. Run commands from the repository root. The examples use Bash on Linux or macOS; see the Windows equivalents below. No generated dataset or pretrained model is committed.
 
-Requires Python 3.10+.
+### 1. Install
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e './detection[dev,api]'
 ```
 
-Reuse an existing `.venv/` by running only the install command. This installs PyTorch, NumPy, pandas, scikit-learn, FastAPI, Uvicorn, and the test tools. Optional ONNX checks require `-e './detection[dev,api,deploy]'`.
+This installs the shared environment for the generator, detector, API, live demo, and tests. Activation is optional because every command specifies its environment explicitly. Optional ONNX export requires `./detection[dev,api,deploy]` instead.
 
-On Windows PowerShell, use `py -3 -m venv .venv`, replace `.venv/bin/python` with `.venv\Scripts\python.exe`, and replace `.venv/bin/scalper-detector` with `.venv\Scripts\scalper-detector.exe`. Put multiline Bash commands on one line.
+On Windows PowerShell:
 
-## 2. Generate the training and test dataset
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install -e './detection[dev,api]'
+```
+
+For the remaining commands, replace `.venv/bin/python` with `.venv\Scripts\python.exe` and `.venv/bin/scalper-detector` with `.venv\Scripts\scalper-detector.exe`. Put multiline Bash commands on one line in PowerShell.
+
+### 2. Generate data
 
 ```bash
 .venv/bin/python -m generation_and_testing.simulator.generate \
@@ -40,19 +51,17 @@ On Windows PowerShell, use `py -3 -m venv .venv`, replace `.venv/bin/python` wit
   --output generation_and_testing/data/simulation
 ```
 
-Choose a **new or empty output directory**; the generator refuses to overwrite data. If this directory already contains your dataset, skip generation and use it directly. For another run, choose a new directory and update subsequent `--simulation`, `--input`, and truth paths together.
+Choose a **new or empty output directory**. To reuse an existing dataset, skip this step. The default configuration produces 11,640 requests:
 
-The default configuration produces **11,640 requests**:
-
-| Source split | Orders | Use |
+| Source split | Requests | Purpose |
 | --- | ---: | --- |
-| `train/` | 7,284 | Fit preprocessing and both models. |
-| `validation/` | 1,728 | Separate linked groups for early stopping and calibration. |
-| `test/` | 2,628 | Untouched final evaluation and API replay. |
+| `train/` | 7,284 | Fit preprocessing and models. |
+| `validation/` | 1,728 | Select neural weights and calibrate on separate linked groups. |
+| `test/` | 2,628 | Final evaluation and HTTP replay. |
 
-Every split contains `requests.jsonl` and separate `ground_truth.jsonl`. `manifest.json` records configuration, chronological boundaries, counts, and tactics. The two requests in `datathon_authorization/authorization/sample_transactions.json` are a separate HTTP smoke sample; they are too small to train a model or measure accuracy.
+Each split contains label-free `requests.jsonl` and separate `ground_truth.jsonl`. The manifest records configuration, boundaries, and counts. When changing output paths, update all subsequent dataset and truth paths together.
 
-## 3. Train
+### 3. Train
 
 ```bash
 .venv/bin/scalper-detector train-simulation \
@@ -61,26 +70,32 @@ Every split contains `requests.jsonl` and separate `ground_truth.jsonl`. `manife
   --epochs 20
 ```
 
-Training joins labels to requests **offline** by `txn_id`. It preserves source train/test populations and held-out tactics. Only source validation is divided into early-stopping and calibration groups, with linked cards kept together. Preprocessing fits training orders only, and features use current or earlier requests.
+Training joins labels offline by `txn_id`. It preserves the source train/test populations and held-out tactics; source validation is divided into early-stopping and calibration groups with linked cards kept together. Preprocessing fits training orders only. Features use current and earlier requests.
 
-The model directory contains `model.pt`, `tree.json`, `metadata.json`, `metrics.json`, `test_orders.csv`, `order_splits.csv`, and `simulation_evaluation.json`. The last report includes recall by scalping tactic and false positives on legitimate bulk buyers. Use another output directory when preserving an earlier model.
+The model directory contains `model.pt`, `tree.json`, `metadata.json`, `metrics.json`, `test_orders.csv`, `order_splits.csv`, and `simulation_evaluation.json`. Use a different output directory to preserve an earlier model. Saved evaluation reports are the source for your run's results.
 
-## 4. Start the authorization API — terminal 1
+### 4. Start the API in terminal 1
 
 ```bash
 .venv/bin/python -m uvicorn datathon_authorization.authorization.main:app \
   --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-The default model directory is `artifacts/ticket_model`. The API loads it once at startup and fails clearly if it is missing or incompatible. For a different model, set `SCALPER_MODEL_DIR` before starting Uvicorn (`export SCALPER_MODEL_DIR=artifacts/another_model` in Bash; `$env:SCALPER_MODEL_DIR='artifacts/another_model'` in PowerShell).
+The API loads `artifacts/ticket_model` at startup. To select another model, set `SCALPER_MODEL_DIR` before launching:
 
-Open [interactive API docs](http://127.0.0.1:8000/docs). Check readiness at [health](http://127.0.0.1:8000/health) and decision counts at [stats](http://127.0.0.1:8000/stats).
+```bash
+export SCALPER_MODEL_DIR=artifacts/another_model
+```
 
-Use **one worker** and one globally chronological stream. History spans merchants so cross-site activity can affect later scores. It is held in memory and resets on restart. Duplicate IDs and late arrivals return HTTP 409 without changing valid history. Restart before replaying the same IDs or switching to an independent source split. Reloading the server also resets history.
+In PowerShell, use `$env:SCALPER_MODEL_DIR='artifacts/another_model'`.
 
-## 5. Replay the test dataset — terminal 2
+Open the [interactive API docs](http://127.0.0.1:8000/docs), [readiness endpoint](http://127.0.0.1:8000/health), or [decision counts](http://127.0.0.1:8000/stats).
 
-Start with a fresh server, then run:
+Use **one worker and one globally chronological request stream**. History spans merchants, lives in memory, and resets on restart. Duplicate IDs and late arrivals return HTTP 409. Restart before each independent replay or live demo.
+
+### 5. Choose a demonstration in terminal 2
+
+Replay the held-out test requests and evaluate the saved responses against separate local truth:
 
 ```bash
 .venv/bin/python -m datathon_authorization.replay \
@@ -90,49 +105,29 @@ Start with a fresh server, then run:
   --evaluation-output artifacts/api_evaluation.json
 ```
 
-This submits all 2,628 test requests, one at a time, in file order. Only request fields go to `POST /authorize`. Responses are saved first; separate ground truth is then joined locally for offline evaluation. The replay stops with a nonzero exit on invalid input, a network error, or a rejected request, instead of reporting an incomplete run as successful.
+Replay submits requests one at a time in file order. Truth stays local and is joined only after response capture. Inspect the report for precision, recall, F1, per-tactic recall, and legitimate-bulk false positives.
 
-Inspect `artifacts/api_evaluation.json` for overall precision/recall/F1, per-tactic recall, and legitimate-bulk false positives. Compare with the training reports. The HTTP risk scores should agree with offline scoring when the same ordered stream, fresh history, model, and policy are used. Status counts and review-threshold metrics measure different cutoffs, as explained below.
-
-For the original two-request smoke sample, **restart the server first** and run:
-
-```bash
-.venv/bin/python -m datathon_authorization.replay \
-  --input datathon_authorization/authorization/sample_transactions.json \
-  --output artifacts/sample_api_responses.jsonl
-```
-
-The sample's old fixed four-ticket rule has been replaced by the trained detector; specific APPROVE/DECLINE results are not hardcoded. This sample has no ground truth, so use it to check the HTTP flow.
-
-## 6. Demonstrate live purchases
-
-With a trained model and a **fresh** single-worker API running in terminal 1, start terminal 2 at the repository root:
+For a live presentation, start a fresh API and run:
 
 ```bash
 .venv/bin/python -m live_demo
 ```
 
-On Windows PowerShell, use `.venv\Scripts\python.exe -m live_demo`.
+The two-minute default creates new purchases, mixes legitimate buyers with four continuing scalper tactics, and begins a release surge after 30 seconds. The terminal shows API decisions, risk scores, reasons, latency, and schedule delay. Logs are saved under `artifacts/live_demo/`. See the [live demo guide](live_demo/README.md) for presentation controls and output details.
 
-This separate online generator creates new purchases during the run, rather than replaying training/test files. The two-minute default mixes returning legitimate buyers, bulk-buying decoys, and four continuing scalper tactics. A release surge starts after 30 seconds. The terminal shows actual API decisions, risk scores, reasons, and HTTP latency as each purchase is scored. Logs and a summary are saved under `artifacts/live_demo/`.
+The API guide also includes a [two-request HTTP smoke sample](datathon_authorization/README.md#replay-and-evaluate-the-test-dataset). Those unlabeled requests check the HTTP flow; they cannot measure model accuracy.
 
-Adjust `--duration`, `--rate`, `--scalper-ratio`, and release settings for your presentation. See the [live demo guide](live_demo/README.md) for details. The client preserves the API's required global order and reports delays when scoring cannot keep up. Restart the API between independent demos or replays.
-
-## 7. Run the automated tests
+## Development and saved-model evaluation
 
 ```bash
+.venv/bin/python -m ruff check .
+.venv/bin/python -m ruff format --check .
 .venv/bin/python -m pytest -q
 ```
 
-The root configuration runs generator, detector, replay, and authorization tests. Tests train temporary models, send actual generated requests through FastAPI, compare HTTP and offline predictions, and check validation, missing events, cross-site history, duplicates, ordering, and state isolation. No running server or saved dataset is needed for this command.
+The suite covers all four components, including training/reload, causal features, linked groups, HTTP/offline agreement, validation, replay, and live scheduling. Tests use temporary inputs and models; a running API and saved dataset are unnecessary. ONNX checks require the optional deployment dependencies. See [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions.
 
-For focused API checks:
-
-```bash
-.venv/bin/python -m pytest datathon_authorization/tests detection/tests/test_replay.py -q
-```
-
-For a repeatable offline check of the saved model:
+To re-evaluate a saved model without retraining:
 
 ```bash
 .venv/bin/scalper-detector evaluate \
@@ -141,36 +136,30 @@ For a repeatable offline check of the saved model:
   --output artifacts/rechecked_evaluation.json
 ```
 
-During this integration, **430 automated tests passed**, including optional ONNX checks. A real local Uvicorn run processed all **2,628 default test requests**; HTTP probabilities agreed with offline scores within `2.4e-7`, and reasons, review flags, actions, and event evidence matched. Both original sample requests also completed through HTTP.
-
-For this default synthetic run, review-threshold precision was **99.60%**, recall **95.06%**, and F1 **97.28%**. Two of 379 legitimate-bulk orders were flagged. These figures describe this generator/configuration and model run; they are not real-world accuracy claims. Your saved reports are the source for your own run's results.
-
-## Understand the response
+## Reading the response
 
 | Field | Meaning |
 | --- | --- |
 | `scalper_probability` | Calibrated ensemble estimate from 0 to 1. |
 | `risk_score` | Rounded display score from 0 to 100. |
-| `authorization_status` | Simulated merchant-policy decision: `allow` → APPROVE; verification/throttle advice → REVIEW; cancel/refund advice → DECLINE. |
-| `flagged_for_review`, `decision_threshold` | Whether probability meets the independently calibrated review threshold. |
-| `confidence_tier`, `reason_codes` | Heuristic evidence quality and observed indicators, not proof of resale intent. |
-| `model_result` | Full detector response, including event and cross-site evidence. |
+| `authorization_status` | Simulated APPROVE, REVIEW, or DECLINE derived from merchant action policy. |
+| `flagged_for_review`, `decision_threshold` | Result of applying the separately calibrated review cutoff. |
+| `confidence_tier`, `reason_codes` | Heuristic evidence quality and observed indicators. |
+| `model_result` | Complete detector output, including event and cross-site evidence. |
 
-The authorization status follows merchant action cutoffs; the review flag follows the calibrated review threshold. They can differ. All accepted requests, including those receiving simulated declines, enter **attempt history**. These totals do not establish completed purchases or enforce a real ticket allocation.
+Merchant action cutoffs and the review threshold are separate controls, so the status and review flag can differ. Accepted requests, including simulated declines, enter **attempt history**; they do not establish completed purchases or enforce ticket allocations.
 
-The API accepts the generator's ticket format, including missing event IDs and its longer transaction IDs, plus the original sample's decimal-string amounts. Explicit non-ticket categories and non-ticket MCCs are rejected. Amounts stay in USD units. Unknown release times and buyer allocations are not invented from request dates or generator settings.
+Actor IDs, tactic names, and labels never become online features. Missing event IDs, release times, and buyer allocations remain unknown. Shared addresses and devices may belong to legitimate households or group buyers. CPU scoring is implemented; IBM Telum acceleration remains unverified. See the [implementation](detection/docs/implementation.md) and [deployment](detection/docs/telum_deployment.md) guides for details.
 
-Actor IDs, tactic names, and labels never become online input features. Synthetic metrics describe detectable simulated campaigns; they do not establish real ticket-scalper accuracy. Shared addresses or devices can belong to legitimate households and group buyers. CPU scoring is implemented; IBM Telum acceleration remains unverified.
+## Troubleshooting
 
-## Common problems
-
-| Problem | Fix |
+| Problem | Resolution |
 | --- | --- |
-| Import or command missing | Run the install command from the repository root with the shared `.venv/`. |
-| API startup cannot load the model | Complete training first, or point `SCALPER_MODEL_DIR` to one complete model directory. |
-| Generator says output is not empty | Reuse that dataset or choose a new output path; do not overwrite it. |
-| Replay gets HTTP 409 | Restart the server for a fresh run; preserve source order and avoid mixing splits or samples. |
-| Replay gets HTTP 422 | Inspect the error: tickets/USD/MCC 7922 only, valid quantities/tokens/timestamps, and no truth fields. |
-| Counts differ from the table | The table describes the default config only; check your run's manifest. |
+| Missing import or command | Install from the repository root using the shared `.venv/`. |
+| Model cannot load at API startup | Train first or point `SCALPER_MODEL_DIR` to a complete, compatible model directory. |
+| Generator output is not empty | Reuse the dataset or choose a new output path. |
+| HTTP 409 during replay | Restart for a fresh run; preserve global order and avoid mixing independent streams. |
+| HTTP 422 | Inspect the validation detail: tickets, USD, MCC 7922, valid fields, and no labels. |
+| Counts differ from this guide | The table describes the default configuration; check your manifest. |
 
-Generated datasets, `.venv/`, models, responses, and evaluation reports stay local under ignored `data/` and `artifacts/` directories. Source code and documentation are shared on `feature/data-generator`; `main` is unchanged.
+Generated datasets, virtual environments, models, and reports belong in ignored `data/`, `.venv/`, and `artifacts/` directories. See the [contribution workflow](detection/docs/git_workflow.md) for reviewing and sharing changes.

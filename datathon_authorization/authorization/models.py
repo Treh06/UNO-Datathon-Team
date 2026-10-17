@@ -1,5 +1,7 @@
 """Ticket authorization requests and simulated trained-model responses."""
 
+from __future__ import annotations
+
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
@@ -10,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, m
 
 
 class CardType(str, Enum):
+    """Card funding categories accepted by the authorization adapter."""
+
     credit = "credit"
     debit = "debit"
     prepaid = "prepaid"
@@ -47,12 +51,12 @@ class Transaction(BaseModel):
 
     @field_validator("mcc", "currency", "product_category", "card_type", "channel", mode="before")
     @classmethod
-    def strip_codes(cls, value):
+    def strip_codes(cls, value: Any) -> Any:
         return value.strip() if isinstance(value, str) else value
 
     @field_validator("event_ts", mode="before")
     @classmethod
-    def explicit_timestamp(cls, value):
+    def explicit_timestamp(cls, value: Any) -> str | datetime:
         if not isinstance(value, (str, datetime)):
             raise ValueError("event_ts must be an explicit timezone-aware ISO timestamp")
         return value.strip() if isinstance(value, str) else value
@@ -66,7 +70,7 @@ class Transaction(BaseModel):
 
     @field_validator("amount", mode="before")
     @classmethod
-    def finite_amount(cls, value):
+    def finite_amount(cls, value: Any) -> Decimal:
         if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
             raise ValueError("amount must be a finite positive decimal amount")
         try:
@@ -79,7 +83,7 @@ class Transaction(BaseModel):
 
     @field_validator("card_issue_date", mode="before")
     @classmethod
-    def explicit_issue_date(cls, value):
+    def explicit_issue_date(cls, value: Any) -> str | date | None:
         if value in (None, ""):
             return None
         if isinstance(value, datetime) or not isinstance(value, (str, date)):
@@ -94,7 +98,9 @@ class Transaction(BaseModel):
                 raise ValueError("card_issue_date must be a YYYY-MM-DD date")
         return value
 
-    @field_validator("event_id", "ship_addr_hash", "bill_addr_hash", "email_hash", "device_id", "ip_prefix")
+    @field_validator(
+        "event_id", "ship_addr_hash", "bill_addr_hash", "email_hash", "device_id", "ip_prefix"
+    )
     @classmethod
     def optional_tokens(cls, value: str | None) -> str | None:
         return value or None
@@ -107,7 +113,7 @@ class Transaction(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def issue_date_is_valid(self):
+    def issue_date_is_valid(self) -> Transaction:
         if self.card_issue_date is not None and self.card_issue_date > self.event_ts.date():
             raise ValueError("card_issue_date cannot be later than event_ts in UTC")
         return self
@@ -125,7 +131,9 @@ class AuthorizationResponse(BaseModel):
     processed_ts: datetime
     scalper_probability: float = Field(ge=0, le=1)
     confidence_tier: Literal["limited", "low", "moderate", "high"]
-    recommended_action: Literal["allow", "step_up_verification", "quantity_cap_or_throttle", "cancel_or_refund"]
+    recommended_action: Literal[
+        "allow", "step_up_verification", "quantity_cap_or_throttle", "cancel_or_refund"
+    ]
     flagged_for_review: bool
     decision_threshold: float = Field(ge=0, le=1)
     model_result: dict[str, Any]

@@ -42,7 +42,10 @@ def test_threshold_maximizes_f1_and_prefers_higher_ties():
     probabilities = np.array([0.1, 0.3, 0.3, 0.6, 0.9])
     threshold = select_threshold(labels, probabilities)
     candidates = np.unique(np.r_[probabilities, 0.5])
-    expected = max(candidates, key=lambda candidate: (binary_metrics(labels, probabilities, candidate)["f1"], candidate))
+    expected = max(
+        candidates,
+        key=lambda candidate: (binary_metrics(labels, probabilities, candidate)["f1"], candidate),
+    )
     assert threshold == expected
     assert select_threshold([0, 1], [0.1, 0.9]) == 0.9
 
@@ -53,7 +56,9 @@ def test_precision_target_maximizes_recall_and_uses_higher_cutoff_ties():
     assert select_threshold(labels, probabilities, target_precision=0.8) == 0.9
     assert select_threshold(labels, probabilities, target_precision=0.75) == 0.6
     assert select_threshold(labels, probabilities, target_precision=0.6) == 0.6
-    assert select_threshold(labels, probabilities, target_precision=None) == select_threshold(labels, probabilities)
+    assert select_threshold(labels, probabilities, target_precision=None) == select_threshold(
+        labels, probabilities
+    )
 
 
 def test_unattainable_precision_target_falls_back_to_best_precision_then_recall():
@@ -80,13 +85,23 @@ def test_sigmoid_extremes_and_temperature_improvement():
     labels = np.array([1, 0, 0, 1])
     temperature = fit_temperature(logits, labels)
     assert np.exp(-3) <= temperature <= np.exp(3)
-    assert binary_metrics(labels, sigmoid(logits / temperature))["log_loss"] < binary_metrics(labels, sigmoid(logits))["log_loss"]
+    assert (
+        binary_metrics(labels, sigmoid(logits / temperature))["log_loss"]
+        < binary_metrics(labels, sigmoid(logits))["log_loss"]
+    )
     assert fit_temperature(np.zeros(4), labels) == 1.0
 
 
 @pytest.mark.parametrize(
     "labels,probabilities",
-    [([], []), ([0, 1], [0.5]), ([0, 2], [0.2, 0.8]), ([0, 1], [0.2, np.nan]), ([0, 1], [-0.1, 0.8]), ([[0, 1]], [[0.2, 0.8]])],
+    [
+        ([], []),
+        ([0, 1], [0.5]),
+        ([0, 2], [0.2, 0.8]),
+        ([0, 1], [0.2, np.nan]),
+        ([0, 1], [-0.1, 0.8]),
+        ([[0, 1]], [[0.2, 0.8]]),
+    ],
 )
 def test_invalid_metric_inputs_fail(labels, probabilities):
     with pytest.raises(ValueError):
@@ -106,7 +121,12 @@ def test_lstm_ignores_right_padding_and_preserves_batch_order():
     with torch.no_grad():
         logits = model(features, lengths)
         padded_logits = model(modified, lengths)
-        individual = torch.cat([model(features[index:index + 1, :length], lengths[index:index + 1]) for index, length in enumerate(lengths)])
+        individual = torch.cat(
+            [
+                model(features[index : index + 1, :length], lengths[index : index + 1])
+                for index, length in enumerate(lengths)
+            ]
+        )
     assert logits.shape == (3,)
     torch.testing.assert_close(logits, padded_logits)
     torch.testing.assert_close(logits, individual)
@@ -121,7 +141,16 @@ def test_lstm_gradients_exclude_padding():
     assert torch.count_nonzero(features.grad[0, :1]).item() > 0
 
 
-@pytest.mark.parametrize("kwargs", [{"input_size": 0}, {"input_size": True}, {"input_size": 2, "num_layers": 0}, {"input_size": 2, "dropout": np.nan}, {"input_size": 2, "dropout": 1.0}])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"input_size": 0},
+        {"input_size": True},
+        {"input_size": 2, "num_layers": 0},
+        {"input_size": 2, "dropout": np.nan},
+        {"input_size": 2, "dropout": 1.0},
+    ],
+)
 def test_invalid_model_configuration_fails(kwargs):
     with pytest.raises(ValueError):
         ScalperLSTM(**kwargs)
@@ -130,6 +159,11 @@ def test_invalid_model_configuration_fails(kwargs):
 def test_invalid_sequence_lengths_fail():
     model = ScalperLSTM(input_size=2)
     features = torch.zeros(2, 4, 2)
-    for lengths in (torch.tensor([0, 4]), torch.tensor([1, 5]), torch.tensor([1.0, 2.0]), torch.tensor([1])):
+    for lengths in (
+        torch.tensor([0, 4]),
+        torch.tensor([1, 5]),
+        torch.tensor([1.0, 2.0]),
+        torch.tensor([1]),
+    ):
         with pytest.raises(ValueError):
             model(features, lengths)

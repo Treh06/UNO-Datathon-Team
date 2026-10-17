@@ -4,16 +4,16 @@ This FastAPI component connects the ticket-request generator to the PyTorch LSTM
 
 ## Start from the repository root
 
-Use the folder containing `detection/`, `generation_and_testing/`, and `datathon_authorization/`. The [root quick start](../README.md) gives the complete generation, training, and evaluation sequence.
+Install the shared environment and train a model using the [root quick start](../README.md). Then start the API from the folder containing `detection/`, `generation_and_testing/`, and `datathon_authorization/`:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e './detection[dev,api]'
 .venv/bin/python -m uvicorn datathon_authorization.authorization.main:app \
   --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-Train `artifacts/ticket_model` first, using `scalper-detector train-simulation` as documented in the root guide. The API loads this model directory once at startup. To select another model, set `SCALPER_MODEL_DIR` before launching. Missing or incompatible artifacts stop startup; there is no rules-only fallback.
+On Windows PowerShell, replace `.venv/bin/python` with `.venv\Scripts\python.exe` and put multiline commands on one line.
+
+The API loads `artifacts/ticket_model` once at startup. To select another model, set `SCALPER_MODEL_DIR` before launching. Missing or incompatible artifacts stop startup with a load error.
 
 Use one worker. State lives in memory and resets on restart. Interactive docs are at <http://127.0.0.1:8000/docs>.
 
@@ -46,7 +46,7 @@ The response retains `txn_id`, `authorization_status`, `risk_score`, `reason_cod
 | `step_up_verification` or `quantity_cap_or_throttle` | REVIEW |
 | `cancel_or_refund` | DECLINE |
 
-The API uses the detector's default merchant action policy. The review flag uses the separately calibrated model threshold, so it can differ from the status. A status is a demonstration output, not an actual bank decision or proof of scalping. The previous fixed four-ticket decline rule is removed: no event-specific buyer allocation is known from the generator's `quantity_cap`.
+The API uses the detector's default merchant action policy. The review flag uses the separately calibrated model threshold, so it can differ from the status. Status values are simulated decisions. The generator's `quantity_cap` describes synthetic buying behavior; it does not establish an event-specific buyer allocation.
 
 ## Endpoints and state
 
@@ -80,7 +80,7 @@ For the two-request smoke sample, restart the API and run:
   --output artifacts/sample_api_responses.jsonl
 ```
 
-No sample status is hardcoded. These two requests have no labels and are not a training/evaluation dataset.
+Sample responses depend on the loaded model. The two requests are unlabeled and serve only as an HTTP smoke check.
 
 ## Test the integration
 
@@ -91,4 +91,4 @@ No sample status is hardcoded. These two requests have no labels and are not a t
 
 Tests generate temporary data, train a real model, and compare HTTP responses to offline predictions. They check cross-site state, unknown events, input validation, replay, duplicate/late requests, and independent app instances. A running Uvicorn server is not needed for automated tests.
 
-This remains a local classroom service without authentication, persistent state, multi-worker coordination, or verified Telum acceleration. Synthetic test accuracy needs separate validation on representative authorized ticket traffic.
+This local prototype uses in-memory state and a single worker. Authentication, persistent state, worker coordination, and Telum acceleration require deployment work. Validate model performance separately on representative authorized ticket traffic.

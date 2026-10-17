@@ -39,8 +39,9 @@ def test_synthetic_payment_orders_are_reproducible_and_coherent():
     known_events = first.dropna(subset=["event_id"])
     assert known_events.groupby("event_id").ticket_limit.nunique().le(1).all()
     assert known_events.groupby("event_id").performance_date.nunique().eq(1).all()
-    assert (pd.to_datetime(first.timestamp, utc=True)
-            < pd.to_datetime(first.performance_date, utc=True)).all()
+    assert (
+        pd.to_datetime(first.timestamp, utc=True) < pd.to_datetime(first.performance_date, utc=True)
+    ).all()
     for _, orders in first.groupby("card_id"):
         known_ages = orders.card_age_days.dropna()
         assert known_ages.is_monotonic_increasing
@@ -54,7 +55,8 @@ def test_minimum_dataset_has_four_disjoint_buyer_groups_per_class(fraction):
     # event. Shared BIN prefixes are deliberately excluded from identity groups.
     known_shipping = orders.dropna(subset=["shipping_hash"])
     groups = known_shipping.groupby("shipping_hash").agg(
-        cards=("card_id", "nunique"), label_count=("is_scalper", "nunique"),
+        cards=("card_id", "nunique"),
+        label_count=("is_scalper", "nunique"),
         label=("is_scalper", "first"),
     )
     assert groups.cards.between(1, 4).all()
@@ -83,7 +85,9 @@ def test_fast_high_quantity_behavior_and_bins_overlap_between_classes():
 def test_ticket_histories_support_four_component_isolated_partitions(fraction):
     from scalper_detector.data import EventPreprocessor, split_accounts, validate_events
 
-    orders = validate_events(generate_synthetic_data(20, scalper_fraction=fraction), require_labels=True)
+    orders = validate_events(
+        generate_synthetic_data(20, scalper_fraction=fraction), require_labels=True
+    )
     partitions = split_accounts(orders)
     assert set(partitions) == {"train", "validation", "calibration", "test"}
     preprocessor = EventPreprocessor().fit(partitions["train"])
@@ -107,7 +111,10 @@ def test_ticket_scenarios_have_explicit_separate_event_behaviors():
     assert scenarios.timestamp.is_monotonic_increasing
     assert scenarios.order_id.is_unique
     assert set(scenarios.scenario_name) == {
-        "casual_fan", "family_booking", "cross_site_card_rotation", "different_events_fan",
+        "casual_fan",
+        "family_booking",
+        "cross_site_card_rotation",
+        "different_events_fan",
     }
     rotation = scenarios[scenarios.scenario_name.eq("cross_site_card_rotation")]
     assert rotation.card_id.nunique() == 3
@@ -140,25 +147,35 @@ def test_legitimate_multi_event_bursts_are_substantial_training_examples():
     normal = features[features.is_scalper.eq(0)].copy()
     components = linked_components(orders)
     normal["buyer_component"] = normal.card_id.map(components)
-    diverse = (normal.cluster_distinct_events_5m.ge(5)
-               & normal.cluster_same_event_order_fraction_5m.le(0.35)
-               & normal.cluster_event_identity_coverage_5m.ge(0.60))
+    diverse = (
+        normal.cluster_distinct_events_5m.ge(5)
+        & normal.cluster_same_event_order_fraction_5m.le(0.35)
+        & normal.cluster_event_identity_coverage_5m.ge(0.60)
+    )
     # Broad coverage is intentional: velocity/regularity/amount uniformity alone
     # must not be a shortcut for the positive target in the training population.
     covered = normal.loc[diverse, "buyer_component"].nunique()
     assert covered / normal.buyer_component.nunique() >= 0.20
-    assert (diverse & normal.basket_uniformity_5m.ge(0.95)
-            & normal.interval_regularity.ge(0.90)).sum() >= 8
+    assert (
+        diverse & normal.basket_uniformity_5m.ge(0.95) & normal.interval_regularity.ge(0.90)
+    ).sum() >= 8
     assert (diverse & normal.quantity_available.eq(1) & normal.quantity.le(2)).sum() >= 30
     assert normal.loc[diverse, "cluster_merchants_5m"].ge(3).any()
     assert not {"bundle_fan", "fan_mode", "persona"} & set(orders.columns)
 
     # Shared onsale calendars are a catalog property, not a normal-only signal.
     observed = orders.dropna(subset=["event_id", "seconds_since_release"])
-    release = (pd.to_datetime(observed.timestamp, utc=True)
-               - pd.to_timedelta(observed.seconds_since_release, unit="s")).dt.round("s")
-    catalog = observed.assign(release=release).groupby("event_id").agg(
-        release=("release", "first"), label_count=("is_scalper", "nunique"),
+    release = (
+        pd.to_datetime(observed.timestamp, utc=True)
+        - pd.to_timedelta(observed.seconds_since_release, unit="s")
+    ).dt.round("s")
+    catalog = (
+        observed.assign(release=release)
+        .groupby("event_id")
+        .agg(
+            release=("release", "first"),
+            label_count=("is_scalper", "nunique"),
+        )
     )
     shared_onsales = catalog.groupby("release").filter(lambda events: len(events) >= 5)
     assert len(shared_onsales) >= 20
@@ -168,10 +185,16 @@ def test_legitimate_multi_event_bursts_are_substantial_training_examples():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"n_accounts": 19}, {"n_accounts": 20.5}, {"n_accounts": True},
-        {"seed": -1}, {"seed": 1.2}, {"seed": True},
-        {"scalper_fraction": 0}, {"scalper_fraction": 1},
-        {"scalper_fraction": np.nan}, {"scalper_fraction": np.inf},
+        {"n_accounts": 19},
+        {"n_accounts": 20.5},
+        {"n_accounts": True},
+        {"seed": -1},
+        {"seed": 1.2},
+        {"seed": True},
+        {"scalper_fraction": 0},
+        {"scalper_fraction": 1},
+        {"scalper_fraction": np.nan},
+        {"scalper_fraction": np.inf},
         {"scalper_fraction": "0.2"},
     ],
 )

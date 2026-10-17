@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from time import perf_counter
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import torch
 
 from .data import LABEL, PaymentFeatureStore
+from .decision import MerchantPolicy
 from .pipeline import _combine
+
+if TYPE_CHECKING:
+    from .pipeline import ScalperDetector
 
 
 class OrderScoringSession:
@@ -21,13 +26,21 @@ class OrderScoringSession:
     or other workers. Shared tokens must use the same namespace across merchants.
     """
 
-    def __init__(self, detector, *, policy=None, merchant_policies=None):
+    def __init__(
+        self,
+        detector: ScalperDetector,
+        *,
+        policy: MerchantPolicy | None = None,
+        merchant_policies: dict[str, MerchantPolicy] | None = None,
+    ) -> None:
         self.detector = detector
         self.policy = policy
         self.merchant_policies = merchant_policies or {}
         self.feature_store = PaymentFeatureStore()
         self.sequence_length = detector.metadata["training_config"]["sequence_length"]
-        self.histories = defaultdict(lambda: deque(maxlen=self.sequence_length))
+        self.histories: dict[str, deque[np.ndarray]] = defaultdict(
+            lambda: deque(maxlen=self.sequence_length)
+        )
         self.last_neural_ms = 0.0
 
     def observe(self, order: dict) -> tuple[dict, np.ndarray]:
@@ -39,10 +52,11 @@ class OrderScoringSession:
         return features, values
 
     def score_order(self, order: dict) -> dict:
+        """Observe the next order and return calibrated risk with advisory actions."""
         features, values = self.observe(order)
         history = self.histories[features["card_id"]]
         tensor = torch.zeros((1, self.sequence_length, len(values)), dtype=torch.float32)
-        tensor[0, :len(history)] = torch.from_numpy(np.stack(history))
+        tensor[0, : len(history)] = torch.from_numpy(np.stack(history))
         lengths = torch.tensor([len(history)], dtype=torch.int64)
         start = perf_counter()
         with torch.inference_mode():
@@ -51,5 +65,11 @@ class OrderScoringSession:
         raw_tree = self.detector.forest.predict_proba(values[None, :])
         neural, tree, probabilities = _combine(logits, raw_tree, self.detector.metadata)
         policy = self.merchant_policies.get(features["merchant_id"], self.policy)
-        return self.detector._response(features, float(neural[0]), float(tree[0]), float(probabilities[0]),
-                                       float(self.detector.metadata["decision_threshold"]), policy)
+        return self.detector._response(
+            features,
+            float(neural[0]),
+            float(tree[0]),
+            float(probabilities[0]),
+            float(self.detector.metadata["decision_threshold"]),
+            policy,
+        )

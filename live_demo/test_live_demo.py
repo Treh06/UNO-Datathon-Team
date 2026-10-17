@@ -1,16 +1,16 @@
 """Fast deterministic checks; run with python -m unittest live_demo.test_live_demo."""
 
-from datetime import datetime, timezone
-from io import BytesIO
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import datetime, timezone
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 
 from datathon_authorization.replay import ReplayError
 from live_demo.__main__ import preflight, run_demo
-from live_demo.traffic import DemoConfig, TACTICS, Traffic
+from live_demo.traffic import TACTICS, DemoConfig, Traffic
 
 
 class Clock:
@@ -26,8 +26,15 @@ class Clock:
 
 
 def response(payload):
-    return {"txn_id": payload["txn_id"], "authorization_status": "APPROVE", "risk_score": 10,
-            "scalper_probability": 0.1, "flagged_for_review": False, "decision_threshold": 0.5, "reason_codes": []}
+    return {
+        "txn_id": payload["txn_id"],
+        "authorization_status": "APPROVE",
+        "risk_score": 10,
+        "scalper_probability": 0.1,
+        "flagged_for_review": False,
+        "decision_threshold": 0.5,
+        "reason_codes": [],
+    }
 
 
 class DemoTests(unittest.TestCase):
@@ -55,7 +62,9 @@ class DemoTests(unittest.TestCase):
         self.assertEqual(tactics, set(TACTICS) | {"normal", "legit_bulk"})
 
     def test_burst_rate_and_campaigns(self):
-        config = DemoConfig(duration=300, rate=30, scalper_ratio=1, drop_after=100, drop_duration=100)
+        config = DemoConfig(
+            duration=300, rate=30, scalper_ratio=1, drop_after=100, drop_duration=100
+        )
         traffic = Traffic(config, run_id="4")
         arrivals = list(traffic.arrivals())
         normal = sum(x < 100 for x in arrivals)
@@ -66,7 +75,9 @@ class DemoTests(unittest.TestCase):
             req, truth = traffic.purchase(due)
             groups.setdefault((truth["tactic"], truth["actor_id"]), []).append(req)
         for tactic in TACTICS:
-            orders = next(rows for (name, _), rows in groups.items() if name == tactic and len(rows) >= 18)
+            orders = next(
+                rows for (name, _), rows in groups.items() if name == tactic and len(rows) >= 18
+            )
             if tactic == "shared_address_ring":
                 self.assertEqual(len({r["ship_addr_hash"] for r in orders}), 1)
                 self.assertGreater(len({r["card_token"] for r in orders}), 5)
@@ -80,18 +91,35 @@ class DemoTests(unittest.TestCase):
     def test_pacing_logging_and_separate_truth(self):
         clock = Clock()
         sent = []
+
         def post(endpoint, payload, timeout):
             self.assertEqual(endpoint, "http://localhost:8000/authorize")
             sent.append((clock(), payload))
             clock.sleep(0.001)
             return response(payload)
+
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "run"
-            summary = run_demo(DemoConfig(duration=2, rate=20), output, url="http://localhost:8000", post=post,
-                               clock=clock, sleep=clock.sleep, run_id="1", emit=lambda _: None)
-            timings = [json.loads(line) for line in (output / "timings.jsonl").read_text().splitlines()]
+            summary = run_demo(
+                DemoConfig(duration=2, rate=20),
+                output,
+                url="http://localhost:8000",
+                post=post,
+                clock=clock,
+                sleep=clock.sleep,
+                run_id="1",
+                emit=lambda _: None,
+            )
+            timings = [
+                json.loads(line) for line in (output / "timings.jsonl").read_text().splitlines()
+            ]
             self.assertGreater(len(sent), 10)
-            self.assertTrue(all(sent_at >= timing["scheduled_seconds"] for (sent_at, _), timing in zip(sent, timings)))
+            self.assertTrue(
+                all(
+                    sent_at >= timing["scheduled_seconds"]
+                    for (sent_at, _), timing in zip(sent, timings)
+                )
+            )
             self.assertEqual(summary["responses"], len(sent))
             self.assertEqual(summary["status"], "completed")
             self.assertAlmostEqual(clock(), 2)
@@ -102,62 +130,109 @@ class DemoTests(unittest.TestCase):
     def test_network_failure_not_retried_and_partial_logs_survive(self):
         clock = Clock()
         calls = []
+
         def post(endpoint, payload, timeout):
             calls.append(payload)
             if len(calls) == 2:
                 raise ReplayError("timeout")
             return response(payload)
+
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "run"
             with self.assertRaises(ReplayError):
-                run_demo(DemoConfig(duration=2, rate=20), output, post=post, clock=clock, sleep=clock.sleep, emit=lambda _: None)
+                run_demo(
+                    DemoConfig(duration=2, rate=20),
+                    output,
+                    post=post,
+                    clock=clock,
+                    sleep=clock.sleep,
+                    emit=lambda _: None,
+                )
             summary = json.loads((output / "summary.json").read_text())
-            self.assertEqual((summary["status"], summary["attempted"], summary["responses"]), ("failed", 2, 1))
+            self.assertEqual(
+                (summary["status"], summary["attempted"], summary["responses"]), ("failed", 2, 1)
+            )
             self.assertEqual(len(calls), 2)
 
     def test_slow_server_reports_capacity_limit(self):
         clock = Clock()
+
         def post(endpoint, payload, timeout):
             clock.sleep(1)
             return response(payload)
+
         with tempfile.TemporaryDirectory() as tmp:
-            result = run_demo(DemoConfig(duration=2, rate=100), Path(tmp) / "run", post=post,
-                              clock=clock, sleep=clock.sleep, emit=lambda _: None)
+            result = run_demo(
+                DemoConfig(duration=2, rate=100),
+                Path(tmp) / "run",
+                post=post,
+                clock=clock,
+                sleep=clock.sleep,
+                emit=lambda _: None,
+            )
             self.assertEqual(result["status"], "capacity_limited")
             self.assertGreater(result["schedule_lag_ms"]["p99"], 500)
 
     def test_preflight_rejects_unready_or_used_server(self):
         def get(url, timeout):
-            return BytesIO(json.dumps({"ready": True} if url.endswith("health") else {"requests_processed": 4}).encode())
+            return BytesIO(
+                json.dumps(
+                    {"ready": True} if url.endswith("health") else {"requests_processed": 4}
+                ).encode()
+            )
+
         with patch("live_demo.__main__.urlopen", get), self.assertRaises(ReplayError):
             preflight("http://localhost:8000", 1)
 
     def test_interrupt_saves_partial_summary(self):
         clock = Clock()
+
         def post(endpoint, payload, timeout):
             raise KeyboardInterrupt
+
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "run"
-            result = run_demo(DemoConfig(duration=2, rate=20), output, post=post,
-                              clock=clock, sleep=clock.sleep, emit=lambda _: None)
+            result = run_demo(
+                DemoConfig(duration=2, rate=20),
+                output,
+                post=post,
+                clock=clock,
+                sleep=clock.sleep,
+                emit=lambda _: None,
+            )
             self.assertEqual(result["status"], "interrupted")
             self.assertEqual(result["attempted"], 1)
             self.assertEqual(result["responses"], 0)
-            self.assertEqual(json.loads((output / "manifest.json").read_text())["status"], "interrupted")
+            self.assertEqual(
+                json.loads((output / "manifest.json").read_text())["status"], "interrupted"
+            )
 
     def test_malformed_response_is_failure(self):
         clock = Clock()
+
         def post(endpoint, payload, timeout):
             return {"txn_id": payload["txn_id"], "authorization_status": "APPROVE"}
+
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "run"
             with self.assertRaises(ReplayError):
-                run_demo(DemoConfig(duration=2, rate=20), output, post=post,
-                         clock=clock, sleep=clock.sleep, emit=lambda _: None)
+                run_demo(
+                    DemoConfig(duration=2, rate=20),
+                    output,
+                    post=post,
+                    clock=clock,
+                    sleep=clock.sleep,
+                    emit=lambda _: None,
+                )
             self.assertEqual(json.loads((output / "summary.json").read_text())["status"], "failed")
 
     def test_invalid_settings(self):
-        for setting in ({"rate": 0}, {"duration": float("nan")}, {"scalper_ratio": 1.1}, {"merchants": 1}):
+        for setting in (
+            {"rate": 0},
+            {"duration": float("nan")},
+            {"scalper_ratio": 1.1},
+            {"merchants": 1},
+        ):
             with self.assertRaises(ValueError):
                 DemoConfig(**setting).validate()
 

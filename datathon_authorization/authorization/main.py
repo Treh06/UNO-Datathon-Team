@@ -4,26 +4,27 @@ Run from the repository root with:
     uvicorn datathon_authorization.authorization.main:app
 """
 
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
 import json
 import logging
 import math
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+import torch
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-import torch
 
 from .authorization import authorize
 from .models import AuthorizationResponse, Transaction
 from .validator import validate_transaction
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,31 +40,41 @@ def _validation_float(value: float) -> float | str:
 
 @dataclass
 class _AuthorizationState:
+    """Mutable detector history guarded by one lock for the app's lifetime."""
+
     detector: Any
     session: Any
     model_directory: str
     ready: bool = True
     failure: str | None = None
     seen_ids: set[str] = field(default_factory=set)
-    decisions: dict[str, int] = field(default_factory=lambda: {"APPROVE": 0, "REVIEW": 0, "DECLINE": 0})
-    last_event_ts: Any = None
+    decisions: dict[str, int] = field(
+        default_factory=lambda: {"APPROVE": 0, "REVIEW": 0, "DECLINE": 0}
+    )
+    last_event_ts: datetime | None = None
     lock: Any = field(default_factory=Lock)
 
 
-def create_app(*, model_dir: str | Path | None = None, detector=None) -> FastAPI:
+def create_app(*, model_dir: str | Path | None = None, detector: Any | None = None) -> FastAPI:
     """Load one saved detector during lifespan and keep state isolated per app.
 
     ``detector`` injection supports integration tests. Production startup uses
     ``model_dir`` or SCALPER_MODEL_DIR, defaulting to artifacts/ticket_model.
     Run a single worker: state is chronological, in memory, and not shared.
     """
-    directory = Path(model_dir if model_dir is not None else os.environ.get("SCALPER_MODEL_DIR", "artifacts/ticket_model"))
+    configured_directory = (
+        model_dir
+        if model_dir is not None
+        else os.environ.get("SCALPER_MODEL_DIR", "artifacts/ticket_model")
+    )
+    directory = Path(configured_directory)
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI):
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         try:
             if detector is None:
                 from scalper_detector.pipeline import ScalperDetector
+
                 loaded = ScalperDetector.load(directory)
             else:
                 loaded = detector
@@ -87,11 +98,13 @@ def create_app(*, model_dir: str | Path | None = None, detector=None) -> FastAPI
                 state.ready = False
                 state.session = None
 
-    application = FastAPI(title="Trained Ticket Authorization Simulation", version="2.0.0", lifespan=lifespan)
+    application = FastAPI(
+        title="Trained Ticket Authorization Simulation", version="2.0.0", lifespan=lifespan
+    )
     application.state.authorization_state = None
 
     @application.exception_handler(RequestValidationError)
-    async def invalid_request(_request, exc: RequestValidationError):
+    async def invalid_request(_request: Request, exc: RequestValidationError) -> JSONResponse:
         # Python's JSON decoder can accept NaN/Infinity. The request schema
         # rejects these, but echoing them unchanged in validation errors would
         # make JSONResponse raise and turn a client error into HTTP 500.
@@ -105,10 +118,14 @@ def create_app(*, model_dir: str | Path | None = None, detector=None) -> FastAPI
         return state
 
     @application.get("/health")
-    def health():
+    def health() -> JSONResponse:
+        """Report detector metadata and readiness without changing its history."""
         state = application.state.authorization_state
         if state is None:
-            return JSONResponse(status_code=503, content={"status": "unavailable", "ready": False, "mode": "simulation"})
+            return JSONResponse(
+                status_code=503,
+                content={"status": "unavailable", "ready": False, "mode": "simulation"},
+            )
         with state.lock:
             metadata = state.detector.metadata
             result = {
@@ -133,7 +150,8 @@ def create_app(*, model_dir: str | Path | None = None, detector=None) -> FastAPI
             return JSONResponse(status_code=200 if state.ready else 503, content=result)
 
     @application.post("/authorize", response_model=AuthorizationResponse)
-    def authorize_request(txn: Transaction):
+    def authorize_request(txn: Transaction) -> AuthorizationResponse:
+        """Score one request atomically in global event-time order."""
         # Pydantic and adapter validation finish before touching shared state.
         try:
             order = validate_transaction(txn)
@@ -142,11 +160,16 @@ def create_app(*, model_dir: str | Path | None = None, detector=None) -> FastAPI
         state = state_or_unavailable()
         with state.lock:
             if not state.ready:
-                raise HTTPException(status_code=503, detail=state.failure or "The ticket detector is not ready.")
+                raise HTTPException(
+                    status_code=503, detail=state.failure or "The ticket detector is not ready."
+                )
             if txn.txn_id in state.seen_ids:
                 raise HTTPException(status_code=409, detail="txn_id already processed")
             if state.last_event_ts is not None and txn.event_ts < state.last_event_ts:
-                raise HTTPException(status_code=409, detail="event_ts is out of order; requests must be globally chronological")
+                raise HTTPException(
+                    status_code=409,
+                    detail="event_ts is out of order; requests must be globally chronological",
+                )
             try:
                 response = authorize(txn, state.session, order=order)
                 # Ensure serialization also succeeds before committing API IDs
@@ -155,9 +178,13 @@ def create_app(*, model_dir: str | Path | None = None, detector=None) -> FastAPI
                 json.dumps(response.model_dump(mode="json"), allow_nan=False)
             except Exception as exc:
                 state.ready = False
-                state.failure = "Ticket inference failed; restart the service before submitting more requests."
+                state.failure = (
+                    "Ticket inference failed; restart the service before submitting more requests."
+                )
                 state.session = None
-                _LOGGER.exception("Ticket authorization inference failed; chronological session discarded")
+                _LOGGER.exception(
+                    "Ticket authorization inference failed; chronological session discarded"
+                )
                 raise HTTPException(status_code=503, detail=state.failure) from exc
             state.seen_ids.add(txn.txn_id)
             state.last_event_ts = txn.event_ts
@@ -165,7 +192,8 @@ def create_app(*, model_dir: str | Path | None = None, detector=None) -> FastAPI
             return response
 
     @application.get("/stats")
-    def stats():
+    def stats() -> dict[str, Any]:
+        """Return committed request and authorization counts for this app."""
         state = state_or_unavailable()
         with state.lock:
             return {"requests_processed": len(state.seen_ids), "decisions": dict(state.decisions)}

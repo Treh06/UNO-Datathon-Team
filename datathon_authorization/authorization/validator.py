@@ -1,11 +1,13 @@
 """Adapt validated request data before any chronological scoring-state update."""
 
+from typing import Any
+
 from scalper_detector.authorizations import authorization_to_order
 
 from .models import Transaction
 
 
-def validate_transaction(txn: Transaction) -> dict:
+def validate_transaction(txn: Transaction) -> dict[str, Any]:
     """Return a canonical label-free order, retaining missing-data flags.
 
     Missing performance or linkage tokens remain unknown. Neither a category
