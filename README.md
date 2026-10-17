@@ -23,7 +23,32 @@ flowchart LR
 
 ## Quick start
 
-Requires **Python 3.10 or later**. Run commands from the repository root. The examples use Bash on Linux or macOS; see the Windows equivalents below. No generated dataset or pretrained model is committed.
+Use **Python 3.13** for a consistent development setup; the package requires Python 3.10 or later. Run commands from the repository root. No generated dataset or pretrained model is committed.
+
+Choose the guide for your computer. Each includes installation, checks, data generation, training, and the API/demo commands in the correct shell:
+
+| Platform | Setup and run guide | Shell |
+| --- | --- | --- |
+| Linux | [Linux guide](docs/platforms/linux.md) | Bash |
+| macOS (Apple silicon) | [macOS guide](docs/platforms/macos.md) | zsh or Bash |
+| Windows | [Windows guide](docs/platforms/windows.md) | PowerShell |
+
+All platforms use **one shared source tree**. Create a separate `.venv` on each operating system; virtual environments contain platform-specific executables and dependencies and must not be copied between computers. Linux and macOS share Unix command conventions, while Windows uses `Scripts` paths and PowerShell syntax. Separate operating-system branches are unnecessary for these setup differences.
+
+Native macOS support targets **Apple silicon (arm64)**. Official wheels for the required PyTorch version are unavailable for Intel macOS: PyTorch 2.2.x was the last macOS x86-64 release. See the [macOS guide](docs/platforms/macos.md) and [PyTorch release announcement](https://pytorch.org/blog/pytorch2-2/).
+
+The application source at commit `33fbd23` was checked on all three platforms:
+
+| Environment | Python | Result |
+| --- | --- | --- |
+| Linux, Ubuntu 24.04 x64 | 3.10 | 439 passed, 2 optional ONNX checks skipped |
+| Linux, Ubuntu 24.04 x64, with ONNX packages | 3.13 | 441 passed |
+| Windows Server 2025 x64 | 3.13 | 439 passed, 2 optional ONNX checks skipped |
+| macOS, Apple silicon, with ONNX packages | 3.13.2 | 441 passed locally |
+
+Linux and Windows results are from [GitHub Actions run 39079987870](https://github.com/Treh06/UNO-Datathon-Team/actions/runs/39079987870). macOS was checked locally; the newly added macOS CI job awaits its first remote run after these changes are pushed.
+
+The walkthrough below uses Linux/macOS shell syntax. The Windows guide provides complete PowerShell commands.
 
 ### 1. Install
 
@@ -32,7 +57,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e './detection[dev,api]'
 ```
 
-This installs the shared environment for the generator, detector, API, live demo, and tests. Activation is optional because every command specifies its environment explicitly. Optional ONNX export requires `./detection[dev,api,deploy]` instead.
+This installs one environment for the generator, detector, API, live demo, and tests on this computer. Activation is optional because every command specifies its environment explicitly. Optional ONNX export requires `./detection[dev,api,deploy]` instead. The Linux and Windows guides also show how to install CPU-only PyTorch before the editable install; macOS uses its native PyPI package.
 
 On Windows PowerShell:
 
@@ -125,7 +150,7 @@ The API guide also includes a [two-request HTTP smoke sample](datathon_authoriza
 .venv/bin/python -m pytest -q
 ```
 
-The suite covers all four components, including training/reload, causal features, linked groups, HTTP/offline agreement, validation, replay, and live scheduling. Tests use temporary inputs and models; a running API and saved dataset are unnecessary. ONNX checks require the optional deployment dependencies. See [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions.
+The suite covers all four components, including training/reload, causal features, linked groups, HTTP/offline agreement, validation, replay, and live scheduling. Tests use temporary inputs and models; a running API and saved dataset are unnecessary. ONNX checks require the optional deployment dependencies. CI is configured for Linux, Windows, and macOS; see the [workflow](.github/workflows/ci.yml) for the Python versions and extras exercised by each job. See [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions.
 
 To re-evaluate a saved model without retraining:
 
@@ -156,6 +181,7 @@ Actor IDs, tactic names, and labels never become online features. Missing event 
 | Problem | Resolution |
 | --- | --- |
 | Missing import or command | Install from the repository root using the shared `.venv/`. |
+| An environment copied from another operating system fails | Create a new `.venv` with the destination computer's Python and reinstall the project using its [platform guide](#quick-start). |
 | Model cannot load at API startup | Train first or point `SCALPER_MODEL_DIR` to a complete, compatible model directory. |
 | Generator output is not empty | Reuse the dataset or choose a new output path. |
 | HTTP 409 during replay | Restart for a fresh run; preserve global order and avoid mixing independent streams. |

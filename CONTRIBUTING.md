@@ -1,11 +1,15 @@
 # Contributing
 
 Run commands from the repository root. The [README](README.md) covers installation,
-training, and the live demonstration. All components share one virtual environment.
+training, and the live demonstration. All components on a computer share one virtual
+environment. Create that environment separately on each operating system.
 
 ## Development setup
 
-Use Python 3.10 or later. On Linux and macOS:
+Use Python 3.13 for development. The package requires Python 3.10 or later. The
+[Linux](docs/platforms/linux.md), [macOS](docs/platforms/macos.md), and
+[Windows](docs/platforms/windows.md) guides include complete setup and run commands.
+On Linux and Apple silicon macOS:
 
 ```bash
 python3 -m venv .venv
@@ -42,10 +46,18 @@ To apply formatting and safe lint fixes:
 .venv/bin/python -m ruff format .
 ```
 
-CI runs lint and formatting checks, tests on Linux with Python 3.10 and 3.13,
-and tests on Windows with Python 3.13. The Linux Python 3.13 job also checks ONNX
-export and CPU parity. IBM accelerator compilation and timing require separate
+CI is configured to run lint and formatting checks, tests on Linux with Python
+3.10 and 3.13, and tests on Windows and macOS with Python 3.13. The Linux Python
+3.13 and macOS jobs also install the optional ONNX dependencies for export and CPU
+parity checks. Check the [workflow](.github/workflows/ci.yml) and its completed runs
+for current coverage. IBM accelerator compilation and timing require separate
 target hardware validation.
+
+Keep one shared implementation across platforms. Use `pathlib`, the active Python
+interpreter, and portable Python APIs when handling files or launching helpers.
+Document shell-specific commands in the platform guides. An operating-system
+branch is unnecessary when the difference is an executable path, shell syntax, or
+dependency installation command. Do not commit or share `.venv/` between systems.
 
 ## Project layout
 
