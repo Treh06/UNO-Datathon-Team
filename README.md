@@ -15,6 +15,7 @@ flowchart LR
 - [Generator guide](generation_and_testing/README.md): configuration, tactics, and source splits. Its original README is preserved.
 - [Detector guide](detection/README.md): model features, CSV workflows, interpretation, and deployment limits.
 - [Authorization guide](datathon_authorization/README.md): HTTP contract, state, validation, and replay.
+- [Live demo guide](live_demo/README.md): newly generated purchases arriving over time, release surges, and live model decisions.
 
 Run all commands below **from the repository root** on `feature/data-generator`. No generated dataset or pretrained model is committed. The API is a local demonstration: no bank is contacted and no payment, cancellation, or refund executes.
 
@@ -103,7 +104,21 @@ For the original two-request smoke sample, **restart the server first** and run:
 
 The sample's old fixed four-ticket rule has been replaced by the trained detector; specific APPROVE/DECLINE results are not hardcoded. This sample has no ground truth, so use it to check the HTTP flow.
 
-## 6. Run the automated tests
+## 6. Demonstrate live purchases
+
+With a trained model and a **fresh** single-worker API running in terminal 1, start terminal 2 at the repository root:
+
+```bash
+.venv/bin/python -m live_demo
+```
+
+On Windows PowerShell, use `.venv\Scripts\python.exe -m live_demo`.
+
+This separate online generator creates new purchases during the run, rather than replaying training/test files. The two-minute default mixes returning legitimate buyers, bulk-buying decoys, and four continuing scalper tactics. A release surge starts after 30 seconds. The terminal shows actual API decisions, risk scores, reasons, and HTTP latency as each purchase is scored. Logs and a summary are saved under `artifacts/live_demo/`.
+
+Adjust `--duration`, `--rate`, `--scalper-ratio`, and release settings for your presentation. See the [live demo guide](live_demo/README.md) for details. The client preserves the API's required global order and reports delays when scoring cannot keep up. Restart the API between independent demos or replays.
+
+## 7. Run the automated tests
 
 ```bash
 .venv/bin/python -m pytest -q

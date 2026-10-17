@@ -103,6 +103,36 @@ def test_health_reports_loaded_ticket_model_and_fresh_stats(client):
     }
 
 
+def test_online_demo_matches_trained_detector_offline(trained, client, tmp_path):
+    from live_demo.__main__ import run_demo
+    from live_demo.traffic import DemoConfig
+    from live_demo.test_live_demo import Clock
+
+    clock = Clock()
+    posted = []
+
+    def send(_endpoint, payload, _timeout):
+        assert {"is_scalper", "actor_id", "tactic"}.isdisjoint(payload)
+        posted.append(payload)
+        response = client.post("/authorize", json=payload)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    output = tmp_path / "online"
+    summary = run_demo(DemoConfig(duration=10, rate=5, drop_after=2, drop_duration=4), output,
+                       post=send, clock=clock, sleep=clock.sleep, run_id="1234",
+                       start=datetime(2026, 11, 9, tzinfo=timezone.utc), emit=lambda _: None)
+    assert summary["status"] == "completed"
+    assert summary["responses"] > 50
+    canonical = read_authorizations(output / "requests.jsonl")
+    expected = trained["detector"].predict(canonical).set_index("order_id", drop=False)
+    saved = [json.loads(line) for line in (output / "responses.jsonl").read_text().splitlines()]
+    assert len(saved) == len(posted) == summary["responses"]
+    for response in saved:
+        assert_matches_offline(response["model_result"], expected.loc[response["txn_id"]])
+    assert client.get("/stats").json()["requests_processed"] == len(posted)
+
+
 def test_entire_generated_test_stream_matches_offline_without_loading_ground_truth(trained, client):
     canonical = read_authorizations(trained["requests_path"])
     assert {"is_scalper", "actor_id", "tactic"}.isdisjoint(canonical.columns)
