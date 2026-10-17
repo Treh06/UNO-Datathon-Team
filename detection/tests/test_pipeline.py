@@ -96,6 +96,31 @@ def test_evaluation_counts_every_order_and_matches_saved_test(trained_example):
     np.testing.assert_array_equal(predictions.events_in_window, np.minimum(counts, 5))
 
 
+def test_evaluation_reuses_saved_inference_batch_size(trained_example):
+    _, directory, report = trained_example
+    detector = ScalperDetector.load(directory)
+    test_orders = read_events(directory / "test_orders.csv", require_labels=True)
+    batch_size = detector.metadata["training_config"]["batch_size"]
+    assert len(test_orders) > batch_size
+    observed_batches = []
+
+    def record_batch(_model, args):
+        observed_batches.append(len(args[0]))
+
+    hook = detector.model.register_forward_pre_hook(record_batch)
+    try:
+        metrics = detector.evaluate(test_orders)["metrics"]
+    finally:
+        hook.remove()
+
+    expected_batches = [
+        min(batch_size, len(test_orders) - start)
+        for start in range(0, len(test_orders), batch_size)
+    ]
+    assert observed_batches == expected_batches
+    assert metrics == report["test"]
+
+
 def test_split_csv_is_order_complete_and_keeps_linked_components_together(trained_example):
     orders, directory, report = trained_example
     splits = pd.read_csv(directory / "order_splits.csv")

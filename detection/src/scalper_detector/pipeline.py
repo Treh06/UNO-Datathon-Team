@@ -529,9 +529,13 @@ class ScalperDetector:
         )
 
     def evaluate(self, frame: pd.DataFrame) -> dict:
-        """Evaluate labeled orders at the threshold saved during calibration."""
+        """Evaluate labeled orders using the saved threshold and training batch size.
+
+        Matching the training report's inference batches avoids CPU rounding
+        differences in the LSTM when reproducing saved test metrics.
+        """
         df = validate_events(frame, require_labels=True)
-        predictions = self.predict(df)
+        predictions = self.predict(df, batch_size=self.metadata["training_config"]["batch_size"])
         labels = df.set_index("order_id")[LABEL].reindex(predictions.order_id).to_numpy()
         return {
             "data_source": self.metadata["data_source"],
