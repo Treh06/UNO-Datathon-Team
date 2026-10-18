@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> None:
     enable_fault_traceback()
     if enabled:
         print(
-            "Compatibility mode: one CPU thread, unfused LSTM, accelerated CPU kernels disabled.",
+            "Compatibility mode: one CPU thread, unfused LSTM, MKLDNN disabled.",
             file=sys.stderr,
             flush=True,
         )

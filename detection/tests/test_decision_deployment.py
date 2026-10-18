@@ -9,6 +9,14 @@ import torch
 from scalper_detector.decision import MerchantPolicy, decision_fields
 from scalper_detector.deployment import _PaddedExportLSTM, export_onnx
 from scalper_detector.model import ScalperLSTM
+from scalper_detector.runtime import safe_mode_enabled
+
+NATIVE_LSTM = pytest.param(
+    "native",
+    marks=pytest.mark.skipif(
+        safe_mode_enabled(), reason="Native recurrent kernels are disabled in compatibility mode"
+    ),
+)
 
 
 def _complete_evidence():
@@ -268,7 +276,7 @@ def test_invalid_decision_probability_rejected(probability):
         decision_fields(probability, 0.5, 0.5, {})
 
 
-@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+@pytest.mark.parametrize("lstm_backend", [NATIVE_LSTM, "unfused"])
 def test_padded_export_wrapper_matches_packed_model_for_short_histories(lstm_backend):
     torch.manual_seed(7)
     model = ScalperLSTM(4, hidden_size=6, num_layers=2, lstm_backend=lstm_backend).eval()
@@ -281,7 +289,7 @@ def test_padded_export_wrapper_matches_packed_model_for_short_histories(lstm_bac
     torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
 
 
-@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+@pytest.mark.parametrize("lstm_backend", [NATIVE_LSTM, "unfused"])
 def test_onnx_export_has_numeric_parity_and_target_manifest(tmp_path, monkeypatch, lstm_backend):
     onnx = pytest.importorskip("onnx")
     pytest.importorskip("onnxruntime")

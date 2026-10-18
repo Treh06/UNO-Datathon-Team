@@ -8,6 +8,32 @@ fault remains unconfirmed without a traceback from that server.
 
 Run all commands from the repository root using the updated source code.
 
+## Update NumPy and check the environment
+
+After the updated source has been pushed to GitHub, pull it on the server and
+install the project's pinned NumPy version:
+
+```bash
+git pull --ff-only
+.venv/bin/python -m pip install 'numpy==2.2.6'
+.venv/bin/python -m pip install -e './detection[dev,api]'
+.venv/bin/python -m pip check
+.venv/bin/python -c 'import numpy; print(numpy.__version__)'
+```
+
+The last command must print `2.2.6`. Keep native thread limits in place for
+diagnostics and tests, including libraries that tests import before the detector:
+
+```bash
+export SCALPER_SAFE_MODE=1
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export OPENBLAS_DEFAULT_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export PYTHONFAULTHANDLER=1
+```
+
 ## Retry training with the conservative CPU runtime
 
 Use the existing dataset and environment first:
@@ -61,6 +87,22 @@ diagnostic run checks the exercised operations; the complete training command
 above still needs to finish on the server to establish that the reported
 failure is resolved. `-X faulthandler` makes fatal Python stack output available
 if a native library terminates training.
+
+## Run the regression tests and recheck the saved model
+
+```bash
+.venv/bin/python -X faulthandler -m pytest -q
+.venv/bin/python -X faulthandler -m scalper_detector --safe-mode evaluate \
+  --data artifacts/ticket_model/test_orders.csv \
+  --model artifacts/ticket_model \
+  --output artifacts/linuxone_evaluation.json
+```
+
+Tests that explicitly compare against native recurrent kernels skip in compatibility
+mode; those comparisons still run in ordinary workstation CI. ONNX checks also skip
+when optional deployment dependencies are absent. For a sustained
+20-epoch training check, add `--patience 20` to the training command; otherwise
+early stopping may finish before epoch 20.
 
 ## Optional: create a separate environment
 

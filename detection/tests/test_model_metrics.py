@@ -8,6 +8,14 @@ import torch
 
 from scalper_detector.metrics import binary_metrics, fit_temperature, select_threshold, sigmoid
 from scalper_detector.model import ScalperLSTM
+from scalper_detector.runtime import safe_mode_enabled
+
+NATIVE_LSTM = pytest.param(
+    "native",
+    marks=pytest.mark.skipif(
+        safe_mode_enabled(), reason="Native recurrent kernels are disabled in compatibility mode"
+    ),
+)
 
 
 def test_ranking_metrics_and_confusion_matrix():
@@ -110,7 +118,7 @@ def test_invalid_metric_inputs_fail(labels, probabilities):
         select_threshold(labels, probabilities)
 
 
-@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+@pytest.mark.parametrize("lstm_backend", [NATIVE_LSTM, "unfused"])
 def test_lstm_ignores_right_padding_and_preserves_batch_order(lstm_backend):
     torch.manual_seed(7)
     model = ScalperLSTM(input_size=3, hidden_size=8, num_layers=1, lstm_backend=lstm_backend).eval()
@@ -133,7 +141,7 @@ def test_lstm_ignores_right_padding_and_preserves_batch_order(lstm_backend):
     torch.testing.assert_close(logits, individual)
 
 
-@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+@pytest.mark.parametrize("lstm_backend", [NATIVE_LSTM, "unfused"])
 def test_lstm_gradients_exclude_padding(lstm_backend):
     model = ScalperLSTM(
         input_size=2, hidden_size=4, num_layers=1, dropout=0.0, lstm_backend=lstm_backend
@@ -147,6 +155,9 @@ def test_lstm_gradients_exclude_padding(lstm_backend):
 
 @pytest.mark.parametrize("num_layers", [1, 3])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.skipif(
+    safe_mode_enabled(), reason="Native recurrent kernels are disabled in compatibility mode"
+)
 def test_unfused_lstm_matches_native_logits_and_gradients(num_layers, dtype):
     torch.manual_seed(19)
     kwargs = {"input_size": 3, "hidden_size": 5, "num_layers": num_layers, "dropout": 0.0}
