@@ -2,7 +2,7 @@
 
 Generate seeded request streams for training and testing the ticket scalper detector. Requires Python 3.10 or later and uses only the Python standard library.
 
-Run from the repository root. After the matching [platform setup](../README.md#start-here):
+Run from the repository root. After the [shared environment setup](../README.md#1-install):
 
 ```bash
 .venv/bin/python -m generation_and_testing.simulator.generate \
@@ -13,14 +13,6 @@ Run from the repository root. After the matching [platform setup](../README.md#s
 On Windows PowerShell, use `.venv\Scripts\python.exe` and put the command on one line. Choose a new or empty output directory for each run; existing data is never overwritten.
 
 For standalone generation without the shared environment, use `python3` instead of `.venv/bin/python` (`py -3` on Windows). No detector or API installation is required.
-
-## Reuse data or move to another machine
-
-Generation is an offline preparation step, not the live demonstration. Use the [live demo](../live_demo/README.md) for new purchases arriving at the API over time.
-
-Keep a scenario's entire output directory together: `manifest.json` plus all three request/truth splits. Git ignores generated data, so transfer that folder separately or regenerate from the same configuration and Python runtime. Do not copy `.venv`. See [machine handoff](../detection/docs/git_workflow.md).
-
-An existing nonempty output is intentionally rejected. Reuse it without rerunning generation, or choose a new path and update training/replay paths together. Keep ground truth separate from requests when transferring files; only requests may be sent to the API.
 
 ## Generated dataset
 

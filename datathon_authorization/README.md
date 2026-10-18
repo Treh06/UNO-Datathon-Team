@@ -4,7 +4,7 @@ This FastAPI component connects the ticket-request generator to the PyTorch LSTM
 
 ## Start from the repository root
 
-Complete the matching [platform setup](../README.md#start-here), then generate/train using the [root walkthrough](../README.md#run-the-complete-demo). A test run alone does not produce the presentation model. Start the API from the folder containing `detection/`, `generation_and_testing/`, and `datathon_authorization/`:
+Install the shared environment and train a model using the [root quick start](../README.md). Then start the API from the folder containing `detection/`, `generation_and_testing/`, and `datathon_authorization/`:
 
 ```bash
 .venv/bin/python -m uvicorn datathon_authorization.authorization.main:app \
@@ -16,12 +16,6 @@ On Windows PowerShell, replace `.venv/bin/python` with `.venv\Scripts\python.exe
 The API loads `artifacts/ticket_model` once at startup. To select another model, set `SCALPER_MODEL_DIR` before launching. Missing or incompatible artifacts stop startup with a load error.
 
 Use one worker. State lives in memory and resets on restart. Interactive docs are at <http://127.0.0.1:8000/docs>.
-
-Confirm `http://127.0.0.1:8000/health` reports `ready: true` and `/stats` reports zero processed requests before a new independent demo. Leave the API terminal running while the producer uses a second terminal. Ctrl+C stops the API; rerun the launch command to reset history.
-
-To use a different model, set `export SCALPER_MODEL_DIR=artifacts/another_model` in Bash/zsh or `$env:SCALPER_MODEL_DIR='artifacts/another_model'` in PowerShell **before launching in the API terminal**. A stale terminal override can select the wrong model even when the default folder exists.
-
-If switching machines, transfer the complete model folder, recreate dependencies, and verify predictions on fixed ordered requests. [Team handoff and SSH forwarding](../detection/docs/git_workflow.md) cover remote IBM use. The default `127.0.0.1` address is local to the machine/container running the process; it does not expose another computer's API automatically.
 
 ## Request contract
 
@@ -87,19 +81,6 @@ For the two-request smoke sample, restart the API and run:
 ```
 
 Sample responses depend on the loaded model. The two requests are unlabeled and serve only as an HTTP smoke check.
-
-Replay response/evaluation files can be overwritten; choose new paths for a run you want to preserve. The live demo instead requires a new output folder. Neither client should run alongside another producer against this single-state API.
-
-## Startup and request problems
-
-| Symptom | Next step |
-| --- | --- |
-| Import/DLL failure or segfault | Run [native environment checks](../docs/environment.md#check-native-packages-before-the-full-pipeline) before changing API logic. |
-| Missing or incompatible model | Train first, check the working directory/override, and keep model files from one run together. |
-| Connection refused | Confirm the API terminal is still running and use the correct machine/port or SSH forward. |
-| HTTP 409 | Restart for an independent stream; avoid duplicate IDs and late timestamps. |
-| HTTP 422 | Read validation details and correct the request; never add truth fields. |
-| HTTP 503 after inference failure | Preserve server logs and restart; do not continue with uncertain history. |
 
 ## Test the integration
 

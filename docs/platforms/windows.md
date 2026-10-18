@@ -1,81 +1,106 @@
-# Windows setup
+# Windows setup and run guide
 
-Use PowerShell on native 64-bit Windows x86. Run from the repository root, not `detection/`. This guide installs the shared environment; the [root walkthrough](../../README.md#run-the-complete-demo) then covers generation, training, API startup, and the live demo with complete PowerShell commands.
+Run these commands in **PowerShell**, from the repository root. Use Python 3.13
+for the same version as Windows CI; the package requires Python 3.10 or later.
+The CI workflow exercises Windows with Python 3.13. Use a native 64-bit Python
+installation with compatible dependency wheels.
 
-## Before installing
+[The verified CI run](https://github.com/Treh06/UNO-Datathon-Team/actions/runs/39079987870)
+passed 439 tests with 2 optional ONNX checks skipped on Windows Server 2025 x64
+with Python 3.13. The optional deployment packages were not installed in that job.
 
-Install [Git](https://git-scm.com/downloads) and [native 64-bit CPython 3.13](https://www.python.org/downloads/windows/) if needed. Check the launcher:
+All platforms use the same source code. Create `.venv` on Windows; do not copy a
+Linux or macOS environment. No GPU is needed for the CPU workflow.
 
-```powershell
-py -0p
-py -3.13 -c "import sys, platform, struct; print(sys.version); print(platform.machine()); print(struct.calcsize('P') * 8)"
-Get-Location
-```
+## 1. Install
 
-Expect Python 3.13, AMD64, and 64 bits. If `py` is unavailable, use the full path to the intended installed `python.exe` in the environment-creation command. Do not assume the `python` or `pip` on PATH is the one you selected.
-
-**If `.venv` already exists, stop before creating it again.** A working environment can be reused with its original interpreter. A Python-version change or incompatible wheels require [recovery or clearing](../environment.md#rebuild-a-broken-environment). In particular, Python 3.13 cannot use `cp312-cp312-win_amd64` packages left by a 3.12 install.
-
-## Install
-
-For a new/cleared environment:
+Check that the Python launcher can find Python 3.13:
 
 ```powershell
+py -3.13 --version
 py -3.13 -m venv .venv
 .venv\Scripts\python.exe -m pip install --upgrade pip
-.venv\Scripts\python.exe -m pip install --only-binary=:all: 'torch>=2.6,<3' --index-url https://download.pytorch.org/whl/cpu
-.venv\Scripts\python.exe -m pip install --only-binary=:all: -e './detection[dev,api]'
+.venv\Scripts\python.exe -m pip install 'torch>=2.6,<3' --index-url https://download.pytorch.org/whl/cpu
+.venv\Scripts\python.exe -m pip install -e './detection[dev,api]'
 .venv\Scripts\python.exe -m pip check
 ```
 
-The editable install points at this checkout's detector source; API/demo modules run from the root. Binary-only dependency selection makes a missing wheel fail clearly rather than starting an unintended native build. A missing-wheel error needs an interpreter/architecture/package-source check.
+If you use another supported Python version, change the launcher selector in the
+first two commands. If `py` is unavailable but `python` selects the intended
+interpreter, use `python -m venv .venv` instead. Activation is optional because
+commands use explicit executable paths; no PowerShell execution-policy change is
+needed.
 
-Activation is optional. No PowerShell execution-policy change is needed when using explicit executable paths. In VS Code select this checkout's `.venv\Scripts\python.exe`.
-
-## Verify
-
-Run each native check separately:
+## 2. Check the installation
 
 ```powershell
-.venv\Scripts\python.exe -B -X faulthandler -c "import numpy as np; print(np.__version__, np.__file__); print(np.ones((2, 2)) @ np.ones((2, 2)))"
-.venv\Scripts\python.exe -B -X faulthandler -c "import pandas as pd; print(pd.__version__, pd.__file__); print(pd.to_datetime(['2026-11-05T17:00:00Z'], utc=True))"
-.venv\Scripts\python.exe -B -X faulthandler -c "import torch; print(torch.__version__, torch.__file__); print(torch.ones(2) + 1)"
-.venv\Scripts\python.exe -m scalper_detector --help
+.venv\Scripts\scalper-detector.exe --help
 .venv\Scripts\python.exe -m ruff check .
 .venv\Scripts\python.exe -m ruff format --check .
 .venv\Scripts\python.exe -m pytest -c pytest.ini -q
 ```
 
-Tests train temporary models; they need no saved dataset or running API. They do not create the presentation model. ONNX tests can skip without deployment packages.
+Tests create their own temporary data and models. A running API is unnecessary.
+Optional ONNX checks skip until the deployment dependencies are installed.
 
-The root `pytest.ini` places pytest fixture files under `.pytest-tmp` and its cache under `.pytest-cache`, avoiding permission problems in shared Windows temp/cache folders. Both are ignored by Git and work before `artifacts/` exists. The fixture directory is disposable and pytest clears it before a run; keep datasets/models elsewhere. Run one test session at a time. For concurrent sessions, give each a different dedicated `--basetemp` path. See [temporary-folder recovery](../environment.md#pytest-temporary-folder-permissions).
+## 3. Generate data and train
 
-Keep `-c pytest.ini` when selecting individual test files too. Otherwise pytest may discover `detection/pyproject.toml` and miss the root scratch-folder configuration.
+Each command is written on one line so it can be pasted directly into PowerShell:
 
-## Run and repeat
+```powershell
+.venv\Scripts\python.exe -m generation_and_testing.simulator.generate --config generation_and_testing/configs/default.json --output generation_and_testing/data/simulation
+.venv\Scripts\scalper-detector.exe train-simulation --simulation generation_and_testing/data/simulation --output artifacts/ticket_model --epochs 20
+```
 
-Follow [generate, train, start API, start demo](../../README.md#run-the-complete-demo). Start both PowerShell terminals in the repository root. Before a second independent demo/replay, Ctrl+C the API and start it again.
+The generator requires a new or empty output directory. Skip generation when
+reusing an existing dataset. Training creates the model loaded by the API.
 
-For a different model, set `$env:SCALPER_MODEL_DIR='artifacts/another_model'` in the API terminal before launch. This variable is terminal-specific. Remove a stale override with `Remove-Item Env:SCALPER_MODEL_DIR -ErrorAction SilentlyContinue` when returning to the default.
+## 4. Start the API in terminal 1
 
-After pulling changes to `detection/pyproject.toml`, reinstall the project in the existing valid environment and rerun `pip check`. Rebuild instead if Python changed.
+Open PowerShell terminal 1 at the repository root:
+
+```powershell
+.venv\Scripts\python.exe -m uvicorn datathon_authorization.authorization.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+The default model is `artifacts/ticket_model`. To use another directory, set the
+environment variable in this terminal before starting the API:
+
+```powershell
+$env:SCALPER_MODEL_DIR = 'artifacts/another_model'
+```
+
+Open the [API docs](http://127.0.0.1:8000/docs) or
+[readiness endpoint](http://127.0.0.1:8000/health). Use one worker: history is in
+memory and must advance in global timestamp order.
+
+## 5. Run a demo or replay in terminal 2
+
+Open PowerShell terminal 2 at the repository root and run the two-minute demo:
+
+```powershell
+.venv\Scripts\python.exe -m live_demo
+```
+
+For held-out replay instead, stop terminal 1 with Ctrl+C and restart the API so
+its history is empty. Then run in terminal 2:
+
+```powershell
+.venv\Scripts\python.exe -m datathon_authorization.replay --input generation_and_testing/data/simulation/test/requests.jsonl --output artifacts/api_responses.jsonl --ground-truth generation_and_testing/data/simulation/test/ground_truth.jsonl --evaluation-output artifacts/api_evaluation.json
+```
+
+Restart the API between independent demos and replays. Run only one producer
+against it at a time. Live output is saved under `artifacts/live_demo/`.
 
 ## Optional ONNX export
 
-After a trained model exists:
-
 ```powershell
-.venv\Scripts\python.exe -m pip install --only-binary=:all: -e './detection[dev,api,deploy]'
-.venv\Scripts\python.exe -m scalper_detector export-onnx --model artifacts/ticket_model --output artifacts/ticket_model/scalper_lstm.onnx
+.venv\Scripts\python.exe -m pip install -e './detection[dev,api,deploy]'
+.venv\Scripts\scalper-detector.exe export-onnx --model artifacts/ticket_model --output artifacts/ticket_model/scalper_lstm.onnx
 ```
 
-This checks the neural graph on CPU. It does not compile or validate Telum execution.
+This exports and checks the neural branch on CPU. It does not validate IBM Telum
+execution. See the [deployment guide](../../detection/docs/telum_deployment.md).
 
-## Problems and moving machines
-
-- “Not supported on this platform”: inspect interpreter and wheel tags, then rebuild. Upgrading pip alone does not repair old native packages.
-- Missing `scalper-detector.exe`: use `python -m scalper_detector` with the environment Python and confirm the editable install completed.
-- DLL load error: record the failing module and check its required native runtime after confirming version/architecture. Do not treat every DLL issue as a model-code error.
-- Moving the project or changing Python: recreate the environment. Keep datasets/models separately; never transfer `.venv`.
-
-[Environment diagnostics and reset](../environment.md) · [Team machine handoff](../../detection/docs/git_workflow.md)
+Return to the [project overview](../../README.md) for data contracts, metrics, and
+component documentation.
