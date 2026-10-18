@@ -4,6 +4,8 @@ The current task is detecting suspected ticket scalping from purchase authorizat
 
 The repository contains source code, automated tests, merchant-policy configuration, and a companion authorization simulator. It does not include generated transaction datasets, saved prediction examples, or pretrained models. Train using the simulator's output or the team's ticket orders and reviewed labels.
 
+This is the technical reference. For operation, start with the [root walkthrough](../../README.md#run-the-complete-demo) and matching [platform setup](../../README.md#start-here). “Causal” below means an order's features use only current and earlier observed attempts. Environment recovery and native crashes are covered in the [environment guide](../../docs/environment.md); they do not require changing the input format.
+
 ## Companion authorization simulator
 
 The simulator remains in `generation_and_testing/`; the detector lives in `detection/`. Follow the [repository quick start](../../README.md) for generation, `train-simulation`, and request-only scoring.
@@ -24,7 +26,7 @@ The response includes the detector's probability, confidence, evidence, calibrat
 
 ## Train with team-supplied data
 
-Run commands from the repository root after the [README setup](../README.md). These paths describe files the team supplies; they are not bundled with the project.
+Run commands from the repository root after platform setup. These paths describe files the team supplies; they are not bundled with the project. Commands use Linux/macOS paths; PowerShell replaces `.venv/bin/python` with `.venv\Scripts\python.exe` and `.venv/bin/scalper-detector` with `.venv\Scripts\python.exe -m scalper_detector`. Put continued Bash commands on one line in PowerShell. On IBM, substitute the validated container/environment interpreter.
 
 ```bash
 .venv/bin/scalper-detector train \
@@ -97,8 +99,10 @@ Untouched test components supply per-order precision/recall/F1, ranking and cali
 
 ## Verify the software
 
+Use the existing validated environment. Reinstall after dependency declarations change; rebuild after changing Python or moving machines. Never recreate an environment over packages from another interpreter. A passing metadata check does not establish native runtime stability, and desktop CI does not validate LinuxONE.
+
 ```bash
-.venv/bin/python -m pip install -e './detection[dev,api]'
+.venv/bin/python -m pip check
 .venv/bin/python -m pytest -q
 ```
 

@@ -1,191 +1,165 @@
 # Ticket scalper detection
 
-A payment-side prototype for detecting suspicious ticket purchases across participating ticketing sites. A PyTorch LSTM and random forest score each request using the activity available at that time. A local authorization API returns the risk estimate, observed evidence, and a simulated merchant decision.
+A datathon prototype that detects suspicious ticket buying across participating merchants. It combines an LSTM (recent card activity) with a random forest (transaction patterns) and returns a score, observed reasons, and simulated APPROVE/REVIEW/DECLINE advice. It never moves money or executes merchant actions.
 
-The repository includes synthetic data generation, model training and evaluation, HTTP replay, and a paced live demo. All decisions are advisory: no payment, cancellation, or refund is executed. Synthetic results require separate validation on representative ticket traffic.
+## Start here
 
-```mermaid
-flowchart LR
-    G[Synthetic requests] --> T[Train and calibrate detector]
-    G --> R[Replay held-out requests]
-    T --> A[Authorization API]
-    L[Live purchase demo] --> A
-    R --> A
-    A --> D[Risk, evidence, simulated decision]
-```
+Run commands from **the repository root**: the directory containing `detection/`, `generation_and_testing/`, `live_demo/`, and this README. Install once on each machine, generate and train once per scenario, then restart the API for each independent demonstration.
 
-| Component | Purpose |
+| Your machine | Setup guide |
 | --- | --- |
-| [Generator](generation_and_testing/README.md) | Seeded request streams, separate labels, and chronological source splits. |
-| [Detector](detection/README.md) | Causal features, ensemble training, CSV scoring, and ranked review. |
-| [Authorization API](datathon_authorization/README.md) | Request validation, shared scoring history, HTTP responses, and replay. |
-| [Live demo](live_demo/README.md) | New purchases arriving over time, release surges, and live decisions. |
+| Windows, 64-bit x86 | [Windows / PowerShell](docs/platforms/windows.md) |
+| Linux, x86-64 | [Linux / Bash](docs/platforms/linux.md) |
+| macOS, Apple silicon | [macOS / Terminal](docs/platforms/macos.md) |
+| IBM LinuxONE / Linux on IBM Z, s390x | [LinuxONE / Bash](docs/platforms/linuxone.md) |
 
-## Quick start
+For desktop development, Python 3.13 matches the main CI configuration. The package declares Python >=3.10, but native dependency availability also depends on architecture and Python version. On IBM, use the interpreter and native packages validated for the selected IBM environment.
 
-Use **Python 3.13** for a consistent development setup; the package requires Python 3.10 or later. Run commands from the repository root. No generated dataset or pretrained model is committed.
+**Already have a broken environment or changed Python versions?** Follow [environment recovery](docs/environment.md#rebuild-a-broken-environment) before installing. Running `venv` over an existing directory does not clear old packages.
 
-Choose the guide for your computer. Each includes installation, checks, data generation, training, and the API/demo commands in the correct shell:
+## What each part does
 
-| Platform | Setup and run guide | Shell |
-| --- | --- | --- |
-| Linux | [Linux guide](docs/platforms/linux.md) | Bash |
-| macOS (Apple silicon) | [macOS guide](docs/platforms/macos.md) | zsh or Bash |
-| Windows | [Windows guide](docs/platforms/windows.md) | PowerShell |
+| Component | Input and result |
+| --- | --- |
+| [Generator](generation_and_testing/README.md) | Creates synthetic requests and separate labels in train/validation/test splits. |
+| [Detector](detection/README.md) | Trains, calibrates, saves, scores, and evaluates the two-model ensemble. |
+| [Authorization API](datathon_authorization/README.md) | Receives a purchase, uses causal transaction history, and returns the saved model's decision. |
+| [Live demo](live_demo/README.md) | Creates new purchases over time and displays actual API responses, timing, and evaluation. |
+| Replay client | Sends an existing request file to the API and optionally evaluates responses against separate truth. |
 
-All platforms use **one shared source tree**. Create a separate `.venv` on each operating system; virtual environments contain platform-specific executables and dependencies and must not be copied between computers. Linux and macOS share Unix command conventions, while Windows uses `Scripts` paths and PowerShell syntax. Separate operating-system branches are unnecessary for these setup differences.
+Only current and earlier purchases contribute to an order's features. Labels, actor IDs, and tactic names stay out of online inputs. Synthetic accuracy describes the simulated scenario; it does not establish real-world scalper accuracy.
 
-Native macOS support targets **Apple silicon (arm64)**. Official wheels for the required PyTorch version are unavailable for Intel macOS: PyTorch 2.2.x was the last macOS x86-64 release. See the [macOS guide](docs/platforms/macos.md) and [PyTorch release announcement](https://pytorch.org/blog/pytorch2-2/).
+## Run the complete demo
 
-The application source at commit `33fbd23` was checked on all three platforms:
+Complete your platform setup and installation checks first. Commands below are single lines to simplify copying. Choose the block for your shell. Activation is unnecessary because commands name the environment explicitly.
 
-| Environment | Python | Result |
-| --- | --- | --- |
-| Linux, Ubuntu 24.04 x64 | 3.10 | 439 passed, 2 optional ONNX checks skipped |
-| Linux, Ubuntu 24.04 x64, with ONNX packages | 3.13 | 441 passed |
-| Windows Server 2025 x64 | 3.13 | 439 passed, 2 optional ONNX checks skipped |
-| macOS, Apple silicon, with ONNX packages | 3.13.2 | 441 passed locally |
+Run one command at a time and stop if it fails. Fix installation or training errors before starting the API.
 
-Linux and Windows results are from [GitHub Actions run 39079987870](https://github.com/Treh06/UNO-Datathon-Team/actions/runs/39079987870). macOS was checked locally; the newly added macOS CI job awaits its first remote run after these changes are pushed.
+### 1. Generate training and test purchases
 
-The walkthrough below uses Linux/macOS shell syntax. The Windows guide provides complete PowerShell commands.
-
-### 1. Install
+Linux/macOS:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e './detection[dev,api]'
+.venv/bin/python -m generation_and_testing.simulator.generate --config generation_and_testing/configs/default.json --output generation_and_testing/data/simulation
 ```
 
-This installs one environment for the generator, detector, API, live demo, and tests on this computer. Activation is optional because every command specifies its environment explicitly. Optional ONNX export requires `./detection[dev,api,deploy]` instead. The Linux and Windows guides also show how to install CPU-only PyTorch before the editable install; macOS uses its native PyPI package.
-
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
-py -3 -m venv .venv
-.venv\Scripts\python.exe -m pip install -e './detection[dev,api]'
+.venv\Scripts\python.exe -m generation_and_testing.simulator.generate --config generation_and_testing/configs/default.json --output generation_and_testing/data/simulation
 ```
 
-For the remaining commands, replace `.venv/bin/python` with `.venv\Scripts\python.exe` and `.venv/bin/scalper-detector` with `.venv\Scripts\scalper-detector.exe`. Put multiline Bash commands on one line in PowerShell.
+The destination must be new or empty. If the dataset already exists, reuse it and skip generation, or choose another output path and update subsequent commands. Defaults create 11,640 requests: 7,284 train, 1,728 validation, and 2,628 test. Each split has `requests.jsonl` and separate `ground_truth.jsonl`; `manifest.json` records the actual counts and settings.
 
-### 2. Generate data
+### 2. Train and save the detector
+
+Linux/macOS:
 
 ```bash
-.venv/bin/python -m generation_and_testing.simulator.generate \
-  --config generation_and_testing/configs/default.json \
-  --output generation_and_testing/data/simulation
+.venv/bin/python -m scalper_detector train-simulation --simulation generation_and_testing/data/simulation --output artifacts/ticket_model --epochs 20
 ```
 
-Choose a **new or empty output directory**. To reuse an existing dataset, skip this step. The default configuration produces 11,640 requests:
+Windows PowerShell:
 
-| Source split | Requests | Purpose |
-| --- | ---: | --- |
-| `train/` | 7,284 | Fit preprocessing and models. |
-| `validation/` | 1,728 | Select neural weights and calibrate on separate linked groups. |
-| `test/` | 2,628 | Final evaluation and HTTP replay. |
+```powershell
+.venv\Scripts\python.exe -m scalper_detector train-simulation --simulation generation_and_testing/data/simulation --output artifacts/ticket_model --epochs 20
+```
 
-Each split contains label-free `requests.jsonl` and separate `ground_truth.jsonl`. The manifest records configuration, boundaries, and counts. When changing output paths, update all subsequent dataset and truth paths together.
+Training joins labels offline. It preserves the generator's train/test groups and splits source validation into model-selection and calibration groups. It writes `model.pt`, `tree.json`, `metadata.json`, evaluation reports, and held-out orders. Choose a different output directory to preserve an earlier model; training can replace artifacts at an existing destination.
 
-### 3. Train
+Tests train temporary models; passing tests does **not** create `artifacts/ticket_model`. The API needs the model from this step or a complete model directory supplied by the team.
+
+### 3. Start the API in terminal 1
+
+Linux/macOS:
 
 ```bash
-.venv/bin/scalper-detector train-simulation \
-  --simulation generation_and_testing/data/simulation \
-  --output artifacts/ticket_model \
-  --epochs 20
+.venv/bin/python -m uvicorn datathon_authorization.authorization.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-Training joins labels offline by `txn_id`. It preserves the source train/test populations and held-out tactics; source validation is divided into early-stopping and calibration groups with linked cards kept together. Preprocessing fits training orders only. Features use current and earlier requests.
+Windows PowerShell:
 
-The model directory contains `model.pt`, `tree.json`, `metadata.json`, `metrics.json`, `test_orders.csv`, `order_splits.csv`, and `simulation_evaluation.json`. Use a different output directory to preserve an earlier model. Saved evaluation reports are the source for your run's results.
-
-### 4. Start the API in terminal 1
-
-```bash
-.venv/bin/python -m uvicorn datathon_authorization.authorization.main:app \
-  --host 127.0.0.1 --port 8000 --workers 1
+```powershell
+.venv\Scripts\python.exe -m uvicorn datathon_authorization.authorization.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-The API loads `artifacts/ticket_model` at startup. To select another model, set `SCALPER_MODEL_DIR` before launching:
+Leave this terminal running. Open [health](http://127.0.0.1:8000/health) and confirm `ready: true`. [API docs](http://127.0.0.1:8000/docs) show the contract; [stats](http://127.0.0.1:8000/stats) show counts.
 
-```bash
-export SCALPER_MODEL_DIR=artifacts/another_model
-```
+The default model is `artifacts/ticket_model`. To select another model, set `SCALPER_MODEL_DIR` **in terminal 1 before launching**: `export SCALPER_MODEL_DIR=artifacts/another_model` in Bash/zsh or `$env:SCALPER_MODEL_DIR='artifacts/another_model'` in PowerShell.
 
-In PowerShell, use `$env:SCALPER_MODEL_DIR='artifacts/another_model'`.
+### 4. Start live purchases in terminal 2
 
-Open the [interactive API docs](http://127.0.0.1:8000/docs), [readiness endpoint](http://127.0.0.1:8000/health), or [decision counts](http://127.0.0.1:8000/stats).
+Open a second terminal at the same repository root.
 
-Use **one worker and one globally chronological request stream**. History spans merchants, lives in memory, and resets on restart. Duplicate IDs and late arrivals return HTTP 409. Restart before each independent replay or live demo.
-
-### 5. Choose a demonstration in terminal 2
-
-Replay the held-out test requests and evaluate the saved responses against separate local truth:
-
-```bash
-.venv/bin/python -m datathon_authorization.replay \
-  --input generation_and_testing/data/simulation/test/requests.jsonl \
-  --output artifacts/api_responses.jsonl \
-  --ground-truth generation_and_testing/data/simulation/test/ground_truth.jsonl \
-  --evaluation-output artifacts/api_evaluation.json
-```
-
-Replay submits requests one at a time in file order. Truth stays local and is joined only after response capture. Inspect the report for precision, recall, F1, per-tactic recall, and legitimate-bulk false positives.
-
-For a live presentation, start a fresh API and run:
+Linux/macOS:
 
 ```bash
 .venv/bin/python -m live_demo
 ```
 
-The two-minute default creates new purchases, mixes legitimate buyers with four continuing scalper tactics, and begins a release surge after 30 seconds. The terminal shows API decisions, risk scores, reasons, latency, and schedule delay. Logs are saved under `artifacts/live_demo/`. See the [live demo guide](live_demo/README.md) for presentation controls and output details.
+Windows PowerShell:
 
-The API guide also includes a [two-request HTTP smoke sample](datathon_authorization/README.md#replay-and-evaluate-the-test-dataset). Those unlabeled requests check the HTTP flow; they cannot measure model accuracy.
+```powershell
+.venv\Scripts\python.exe -m live_demo
+```
 
-## Development and saved-model evaluation
+The two-minute default mixes legitimate buyers, bulk-buying decoys, and four scalper tactics. Traffic rises fivefold from seconds 30 to 50. The terminal shows scores, decisions, reasons, latency, and schedule delay; results go to a new folder under `artifacts/live_demo/`. Ctrl+C saves a partial summary. See [demo controls and outputs](live_demo/README.md).
+
+For each new independent demo, stop the API with Ctrl+C and start it again before running the producer. Use one API worker and one producer: its in-memory history requires global chronological order. Simulated declines still enter attempt history.
+
+### Replay a fixed test file instead
+
+Start a fresh API. Replay is useful for comparing models on identical requests; the live demo creates new traffic.
+
+Linux/macOS:
 
 ```bash
+.venv/bin/python -m datathon_authorization.replay --input generation_and_testing/data/simulation/test/requests.jsonl --output artifacts/api_responses.jsonl --ground-truth generation_and_testing/data/simulation/test/ground_truth.jsonl --evaluation-output artifacts/api_evaluation.json
+```
+
+Windows PowerShell:
+
+```powershell
+.venv\Scripts\python.exe -m datathon_authorization.replay --input generation_and_testing/data/simulation/test/requests.jsonl --output artifacts/api_responses.jsonl --ground-truth generation_and_testing/data/simulation/test/ground_truth.jsonl --evaluation-output artifacts/api_evaluation.json
+```
+
+Truth is joined locally after scoring. Replay response/report paths may be overwritten; use new filenames when preserving earlier runs.
+
+## Moving machines and sharing team work
+
+Copy or pull **source code**, then recreate the environment on the destination. Never copy `.venv`, installed packages, or compiled model libraries between platforms. Datasets and model artifacts are ignored by Git, so a new checkout will not contain them. Transfer complete model folders separately or regenerate and train.
+
+Use the [machine handoff and team workflow](detection/docs/git_workflow.md) for source updates, artifact transfer, checks, and remote demonstrations. Use [environment diagnostics](docs/environment.md) for interpreter mismatches, native crashes, and version records.
+
+## Check a team change
+
+After platform setup, run these from the root. Windows uses `.venv\Scripts\python.exe` in place of `.venv/bin/python`.
+
+```bash
+.venv/bin/python -m pip check
 .venv/bin/python -m ruff check .
 .venv/bin/python -m ruff format --check .
 .venv/bin/python -m pytest -q
 ```
 
-The suite covers all four components, including training/reload, causal features, linked groups, HTTP/offline agreement, validation, replay, and live scheduling. Tests use temporary inputs and models; a running API and saved dataset are unnecessary. ONNX checks require the optional deployment dependencies. CI is configured for Linux, Windows, and macOS; see the [workflow](.github/workflows/ci.yml) for the Python versions and extras exercised by each job. See [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions.
+These commands check dependencies, formatting, and software behavior. They do not change source formatting. Tests create temporary data/models and need no running API. Optional ONNX tests can skip without deployment extras. The [CI workflow](.github/workflows/ci.yml) specifies OS/Python combinations; it does not test s390x or Telum execution. Use the completed run for the relevant commit as evidence, rather than a historical test count.
 
-To re-evaluate a saved model without retraining:
+## Common problems
 
-```bash
-.venv/bin/scalper-detector evaluate \
-  --data artifacts/ticket_model/test_orders.csv \
-  --model artifacts/ticket_model \
-  --output artifacts/rechecked_evaluation.json
-```
-
-## Reading the response
-
-| Field | Meaning |
+| Symptom | Next step |
 | --- | --- |
-| `scalper_probability` | Calibrated ensemble estimate from 0 to 1. |
-| `risk_score` | Rounded display score from 0 to 100. |
-| `authorization_status` | Simulated APPROVE, REVIEW, or DECLINE derived from merchant action policy. |
-| `flagged_for_review`, `decision_threshold` | Result of applying the separately calibrated review cutoff. |
-| `confidence_tier`, `reason_codes` | Heuristic evidence quality and observed indicators. |
-| `model_result` | Complete detector output, including event and cross-site evidence. |
+| Packages “not supported on this platform” | Check interpreter and wheel tags, then [rebuild the environment](docs/environment.md#rebuild-a-broken-environment). |
+| Missing Python, import, or command | Follow the matching platform guide, run from the root, and select the same interpreter in the IDE. |
+| LinuxONE installation or native crash | Follow the [s390x guide](docs/platforms/linuxone.md); desktop Linux wheels are not interchangeable with IBM binaries. |
+| API cannot load the model | Complete training or set the correct model path; keep all model files together. |
+| HTTP 409 or demo refuses used history | Restart the API; preserve timestamp order and run only one producer. |
+| HTTP 422 | Read the response details: tickets, USD, MCC 7922, valid fields, no truth labels. |
+| Generator refuses output | Reuse the existing dataset or choose a new/empty destination. |
+| Port 8000 is occupied | Stop the earlier server, or use another port and the same `--url` in the client. |
+| Live traffic falls behind | Inspect schedule delay; lower the offered rate. This serial demo is not a concurrent load benchmark. |
 
-Merchant action cutoffs and the review threshold are separate controls, so the status and review flag can differ. Accepted requests, including simulated declines, enter **attempt history**; they do not establish completed purchases or enforce ticket allocations.
+## Technical reference
 
-Actor IDs, tactic names, and labels never become online features. Missing event IDs, release times, and buyer allocations remain unknown. Shared addresses and devices may belong to legitimate households or group buyers. CPU scoring is implemented; IBM Telum acceleration remains unverified. See the [implementation](detection/docs/implementation.md) and [deployment](detection/docs/telum_deployment.md) guides for details.
+[Input/features and model behavior](detection/docs/implementation.md) · [IBM deployment and measurement](detection/docs/telum_deployment.md)
 
-## Troubleshooting
-
-| Problem | Resolution |
-| --- | --- |
-| Missing import or command | Install from the repository root using the shared `.venv/`. |
-| An environment copied from another operating system fails | Create a new `.venv` with the destination computer's Python and reinstall the project using its [platform guide](#quick-start). |
-| Model cannot load at API startup | Train first or point `SCALPER_MODEL_DIR` to a complete, compatible model directory. |
-| Generator output is not empty | Reuse the dataset or choose a new output path. |
-| HTTP 409 during replay | Restart for a fresh run; preserve global order and avoid mixing independent streams. |
-| HTTP 422 | Inspect the validation detail: tickets, USD, MCC 7922, valid fields, and no labels. |
-| Counts differ from this guide | The table describes the default configuration; check your manifest. |
-
-Generated datasets, virtual environments, models, and reports belong in ignored `data/`, `.venv/`, and `artifacts/` directories. See the [contribution workflow](detection/docs/git_workflow.md) for reviewing and sharing changes.
+The API is a local single-worker prototype. Persistent state, coordinated workers, authentication, real processor integration, and hardware performance validation remain separate work. Merchant-policy decisions and calibrated review flags use different cutoffs and can differ.
