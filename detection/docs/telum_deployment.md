@@ -1,79 +1,63 @@
-# IBM deployment and Telum measurement
+# Telum deployment and measurement
 
-First establish reliable CPU execution using the [LinuxONE setup](../../docs/platforms/linuxone.md). This guide covers the next step: enabling and measuring inference acceleration. No compiled library, s390x test result, or Telum performance measurement is bundled with the repository.
-
-IBM z17 and LinuxONE 5 use Telum II. LinuxONE is a hardware family, not an OS; run the project in an approved Linux/s390x environment. Copy source/models through the [team handoff](git_workflow.md), and recreate all native environments.
-
-## Choose the execution path
-
-| Path | Project status and next work |
-| --- | --- |
-| Validated s390x CPU PyTorch | Baseline to establish on the actual machine; desktop tests do not prove it. |
-| ONNX compiled with IBM zDLC | Exporter implemented; target compilation, runtime integration, placement, and hardware measurement pending. |
-| IBM Z Accelerated for PyTorch | Possible alternative inference route; exact model/operator behavior and placement remain unverified. |
-
-The service currently calls PyTorch; it does not load a compiled zDLC library. Installing ordinary PyTorch on IBM hardware does not establish accelerator use. IBM's adapted runtime can target eligible operations, but that must be observed for this model.
-
-The neural LSTM and supported arithmetic are acceleration candidates. Feature/history processing, the current NumPy forest, calibration, explanations, policy, and HTTP work remain outside the exported neural graph. End-to-end improvement depends on all these costs.
+Start with a trained model from the [repository quick start](../../README.md) or your own labeled ticket orders. Run commands from the repository root. No transaction dataset, pretrained model, compiled shared library, or hardware measurement is bundled with the repository. The compiler command below is a template for target-environment work.
 
 ## Export the trained neural branch
 
-On a machine with a valid environment and compatible optional ONNX wheels, install deployment extras through its platform guide. From the repository root:
-
 ```bash
-.venv/bin/python -m scalper_detector export-onnx --model artifacts/ticket_model --output artifacts/ticket_model/scalper_lstm.onnx
+.venv/bin/python -m pip install -e './detection[deploy]'
+.venv/bin/scalper-detector export-onnx \
+  --model artifacts/ticket_model \
+  --output artifacts/ticket_model/scalper_lstm.onnx
 ```
 
-Windows uses `.venv\Scripts\python.exe`. The exporter writes the graph and `scalper_lstm.manifest.json`. Keep those with the complete source model directory. The graph returns uncalibrated neural logits, not the final ensemble probability or merchant decision.
+For team-supplied data, use `train --data data/ticket_orders.csv --data-source user_supplied --output artifacts/ticket_model`, as described in the [detector guide](../README.md). Keep `model.pt`, the ONNX graph, its `.manifest.json`, `metadata.json`, `tree.json`, and model version together. The manifest records operator names, feature order, input shapes, and any numerical checks performed. The graph outputs a neural **logit**; calibration and merchant policy are applied separately.
 
-Inputs are float32 `features[B,T,N]` and int64 `lengths[B]`. Read T/N from the manifest; do not assume a feature width. Histories are right padded and lengths identify the last valid order. The current schema has 42 numeric fields plus learned category/card-type encodings, so width depends on training.
+The input contract is float32 `features[B,T,N]` and int64 `lengths[B]`. `T` defaults to seven history steps but follows the saved training configuration. The current numeric schema has 42 fields; learned category/card-type encodings determine the final width `N`. Read the exported manifest's `inputs.features.shape` and `feature_order`, and compare them with `metadata.json`. There is no included model with a fixed width. Histories are right padded; lengths identify the last real order. Chronological state and standardization remain outside the graph.
 
-Inspect `onnx_checker_passed` and `cpu_numerical_parity.verified`. The CPU checks cover several batch sizes/history lengths. They establish implementation agreement, not accelerator compatibility or real-world model accuracy.
+With ONNX Runtime installed, export checks CPU logit agreement at several valid history lengths and batch sizes. Inspect `onnx_checker_passed` and `cpu_numerical_parity.verified` in your own export manifest. These numerical checks, and automated tests using temporary synthetic tensors, verify implementation consistency; they do not validate the trained model's accuracy on real ticket orders or its compatibility with an accelerator.
 
-## Compile with zDLC on the target
+## Compile on the target environment
 
-Arrange registry access, container tooling, and the approved compiler/runtime version with the IBM administrator. Follow [IBM zDLC instructions](https://github.com/IBM/zDLC), including supported ONNX operators and runtime libraries. The following is a template, not a recorded successful compile.
+IBM's instructions describe compiling ONNX to shared libraries, enabling NNPA using `--maccel=NNPA`, and inspecting operation placement. Unsupported operations or settings can run on CPU. Check the installed compiler's supported operators and target generation before treating a successful compile as acceleration. [Official IBM zDLC instructions](https://github.com/IBM/zDLC#ibm-z-integrated-accelerator-for-ai).
 
-Set the image tag approved for your machine. Version 5.1.0 is an example; keep the version/digest and logs with the results. Use the actual complete model directory and its exported manifest:
+The following template applies **only if your exported manifest reports `T=7` and `N=48`, and your approved target is z17**. Otherwise replace `1x7x48` with the actual batch-one input shape and select the architecture/image for your target. For example, training on the companion simulator's default configuration currently learns 49 features because its card types include `virtual`; read the exported manifest instead of assuming 48. The `lengths` input remains a one-element vector for this batch-one example. Image access, supported operators, and target generation must be checked against the installed IBM compiler.
 
 ```bash
-export PAYMENT_ZDLC_IMAGE='icr.io/ibmz/zdlc:5.1.0'
-export PAYMENT_MODEL_DIR="$(realpath artifacts/ticket_model)"
-export PAYMENT_SHAPES="$(.venv/bin/python -c "import json; m=json.load(open('artifacts/ticket_model/scalper_lstm.manifest.json')); s=m['inputs']['features']['shape']; print('0:1x{}x{},1:1'.format(s[1],s[2]))")"
-docker pull "$PAYMENT_ZDLC_IMAGE"
-docker run --rm -v "$PAYMENT_MODEL_DIR:/workdir:z" "$PAYMENT_ZDLC_IMAGE" --EmitLib --O3 -march=z17 --mtriple=s390x-ibm-loz --maccel=NNPA --onnx-op-stats=JSON --shapeInformation="$PAYMENT_SHAPES" scalper_lstm.onnx
+PAYMENT_ZDLC_IMAGE=icr.io/ibmz/zdlc:5.1.0
+PAYMENT_MODEL_DIR=/absolute/path/to/artifacts/ticket_model
+
+docker run --rm \
+  -v "$PAYMENT_MODEL_DIR:/workdir:z" \
+  "$PAYMENT_ZDLC_IMAGE" \
+  --EmitLib --O3 -march=z17 --mtriple=s390x-ibm-loz \
+  --maccel=NNPA --onnx-op-stats=JSON \
+  --shapeInformation=0:1x7x48,1:1 \
+  scalper_lstm.onnx
 ```
 
-If exporting on a laptop and compiling on IBM, transfer the model folder first. Replace the `.venv/bin/python` above with the validated IBM interpreter when reading the manifest there. Podman can replace Docker where supported. Update the manifest-reading path together with `PAYMENT_MODEL_DIR` if using another model folder.
+Check the compiler help and actual input signature before running. Save the compilation log and placement report with the model. Pay particular attention to the LSTM and the last-valid-timestep gather. A mixture of CPU and accelerator operations is possible; document it rather than attributing the whole request to Telum.
 
-Check compiler help and the emitted signature. Inspect operator placement, particularly LSTM and last-valid-timestep indexing. Some operations can remain on CPU. Successful compilation alone does not prove NNPA use.
+## Integrate the compiled branch
 
-## Integrate and validate the compiled model
+The current `OrderScoringSession` invokes PyTorch CPU. It does not load a compiled `.so`. Replace that one neural invocation with the target runtime after checking its input/output contract. IBM provides a Python runtime example as well as C/C++ and Java integration examples in the [zDLC repository](https://github.com/IBM/zDLC#running-the-python-example).
 
-A compiled `.so` is architecture/runtime-specific; do not copy a Windows or x86 library to s390x. Use IBM's [Python runtime example](https://github.com/IBM/zDLC#running-the-python-example) and match the exported input/output contract.
+Retain the surrounding sequence:
 
-Integration requires a code change to the neural call in `OrderScoringSession`; that change is not implemented by the export command. Preserve this order:
+1. Validate/tokenize an order and look up or update causal card, BIN, and linked-cluster state.
+2. Apply the exact saved preprocessing and build the card's history tensor and length.
+3. Invoke the compiled neural branch and CPU forest.
+4. Apply saved branch temperatures, ensemble weight, and final temperature.
+5. Return the score, confidence, observed evidence, and merchant's advisory policy result.
 
-1. Validate the request and build causal card/BIN/linkage features.
-2. Apply the exact saved preprocessing and form the history tensor/length.
-3. Invoke the compiled neural branch and the existing forest.
-4. Apply saved branch temperatures, ensemble weight, and final calibration.
-5. Produce the existing score, reasons, confidence, and merchant advice.
+Compare compiled logits to the saved CPU model before comparing latency. Include histories from length 1 through your saved `T`, missing optional inputs, linked-card bridge events, unseen card types, and boundary-sized payment bursts. Confirm that non-ticket categories are rejected before neural invocation. Use the same token namespaces and graph history on both paths.
 
-Compare logits and final decisions with CPU across every valid history length, missing optional inputs, unseen categories, linked-card bridges, and busy releases. Account for accelerator precision differences and check orders near decision thresholds. Reject non-ticket input before inference. Keep token namespaces and state identical in both comparisons.
+## Record a defensible hardware comparison
 
-## Alternative: IBM's accelerated PyTorch
+Create CPU-only and NNPA-enabled target builds from the same neural artifact. First measure isolated neural invocation, then the complete order path. Use matching input orders, feature state, batch size, precision, warmup, concurrency, and measurement boundaries.
 
-[IBM Z Accelerated for PyTorch](https://github.com/IBM/ibmz-accelerated-for-pytorch) provides an inference-oriented runtime with supported operations routed to the accelerator and CPU fallback for others. It may reduce custom integration work, but our packed-history LSTM and complete request path still need verification.
+Save hardware generation, compiler/image/runtime versions, operator placement, sample count, p50/p95/p99 latency, sustained offered/completed rates, errors, queueing, and fallback. Include cold starts separately from warm inference. Repeat a true concurrent drop-day load, with an agreed latency target and realistic feature-store/network costs.
 
-Use the supplied framework version; IBM advises against replacing PyTorch inside that image. IBM distinguishes CPU training from accelerated inference. Start with the [CPU setup](../../docs/platforms/linuxone.md), then assess this runtime with the administrator. Do not assume that a `torch>=2.6` pip package is equivalent to IBM's adapted build.
+The local `benchmark` command is a single-process CPU replay. It compresses event timestamps to a requested burst rate and estimates a serial queue from measured service times. It does not generate concurrent authorization traffic. Running that command on another host alone does not switch its neural backend to a compiled accelerator model.
 
-## Measure the actual benefit
-
-Use matching CPU and accelerated runs on the same hardware, model, ordered inputs, and state. First compare numerical results, then neural invocation and full-request time.
-
-Record hardware/OS, image/compiler/runtime versions, input shapes, operation placement, precision, warmup, sample count, p50/p95/p99 latency, offered/completed rates, errors, queue delay, and fallback. Separate cold startup from warm inference.
-
-The local benchmark and live demo are serial. Their burst settings do not establish concurrent capacity or a service-level target. A true concurrency test needs globally ordered, shared-state handling; simply adding API workers breaks the current state model.
-
-Report accelerator speedup only after both paths are measured. Until then, describe target compilation/integration, accelerator placement, and hardware benchmarking as pending.
+Report a speedup only after both target paths have run under those conditions. Until then, record deployment as **target compilation, accelerator placement, and hardware benchmarking pending**. Describe CPU parity only when it is confirmed in the manifest produced from your trained model.

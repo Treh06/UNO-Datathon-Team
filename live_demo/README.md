@@ -4,7 +4,7 @@ Create synthetic purchases during a live run and submit them to the trained auth
 
 ## Run
 
-Complete [platform setup](../README.md#start-here) and train or transfer a complete model using the [root guide](../README.md#run-the-complete-demo). Tests do not create the saved presentation model. From the repository root, start a **fresh** API in terminal 1:
+First install the project and train a model using the [root guide](../README.md). From the repository root, start a **fresh** API in terminal 1:
 
 ```bash
 .venv/bin/python -m uvicorn datathon_authorization.authorization.main:app \
@@ -18,8 +18,6 @@ In terminal 2:
 ```
 
 On Windows PowerShell, replace `.venv/bin/python` with `.venv\Scripts\python.exe` and put multiline commands on one line. Start both terminals in the repository root. If the model lives elsewhere, set `SCALPER_MODEL_DIR` in terminal 1 before starting the API.
-
-Wait for `/health` to report `ready: true`; `/stats` should report zero processed requests. Leave terminal 1 running. After a run, stop/restart the API before starting another independent demo or replay. To stop the live producer, press Ctrl+C in terminal 2; stopping it does not reset API history.
 
 The default is a **two-minute demonstration** with an average of two purchases per second, about 25% scalper purchases, and a fivefold release surge from seconds 30 through 50. Poisson arrivals create irregular gaps rather than a fixed metronome. These are expected rates and proportions, not exact counts. Ctrl+C stops and saves the partial summary.
 
@@ -70,23 +68,6 @@ If scoring cannot keep up, schedule delay increases. The demo stops dispatching 
 Before sending purchases, the CLI checks readiness and requires empty API history. Restart the API before each independent demonstration, and do not run another producer against it simultaneously. API state is local to one worker. This is a demo of real-time transaction processing, not a concurrent load benchmark or confirmed-purchase accounting.
 
 On HTTP/network failure, sending stops and partial logs remain. Requests are not automatically retried: after a timeout the server may already have observed the attempt. Restart before another run. Synthetic results do not establish accuracy on real payment traffic.
-
-## Present from another machine
-
-The producer itself uses standard-library Python; it does not load the detector or read training data. It can run on a laptop while the API/model runs on IBM. Use the [SSH-forwarding procedure](../detection/docs/git_workflow.md#use-the-ibm-api-from-a-laptop), then pass `--url http://127.0.0.1:8000` (or the forwarded port).
-
-For a producer-only laptop with an appropriate Python already installed, `python3 -m live_demo` or `py -3 -m live_demo` from the repository root avoids installing the numerical stack there. Full training/API execution still requires the platform's environment setup. Keep clocks synchronized and do not copy the server's virtual environment to the laptop.
-
-## Quick troubleshooting
-
-| Problem | Resolution |
-| --- | --- |
-| Preflight reports used history | Restart the API process before this independent run. |
-| API not ready/connection refused | Check its terminal, trained model, machine address, and port/SSH tunnel. |
-| Output directory already exists | Choose a new `--output`, or omit it for an automatic timestamped folder. |
-| `capacity_limited` / increasing delay | Lower `--rate` or surge multiplier; serial scoring has fallen behind. |
-| Too few tactic examples | Increase duration/rate or scalper ratio; proportions and arrivals are random. |
-| Native dependency crash on the server | Use [environment diagnostics](../docs/environment.md), especially the [s390x guide](../docs/platforms/linuxone.md) on IBM. |
 
 ## Tests
 
