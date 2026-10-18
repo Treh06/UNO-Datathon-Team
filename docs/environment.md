@@ -116,6 +116,23 @@ Choose a new diagnostic output path to preserve earlier models. Record the comma
 
 When imports pass but math crashes, inspect `numpy.show_runtime()` and native BLAS/OpenMP libraries. Thread limits can be a controlled diagnostic experiment, not an assumed permanent fix. Follow [NumPy troubleshooting](https://numpy.org/doc/stable/user/troubleshooting-importerror.html); do not apply x86 SIMD settings to s390x. Do not blindly downgrade to NumPy 1.x: this project declares `numpy>=2`.
 
+## Pytest temporary-folder permissions
+
+If tests report `PermissionError: [WinError 5]` on `Temp/pytest-of-*`, the current account cannot access pytest's shared scratch directory. Many tests can then fail during setup before model code runs. Reinstalling numerical packages does not repair this folder's permissions.
+
+The root `pytest.ini` uses `--basetemp=.pytest-tmp` and `cache_dir=.pytest-cache` so the normal root test command creates fixture/cache files in this checkout. These directories are ignored by Git and their parent (the repository root) already exists. Run tests using the same account as your terminal. **Pytest clears the exact fixture scratch directory before a run**; never store source, datasets, or saved presentation models there. The project's separate model and dataset folders are unaffected.
+
+If that project scratch folder was also created by another account, or if running concurrent sessions, override it with a fresh dedicated path. From the repository root in PowerShell:
+
+```powershell
+$pytestTemp = '.pytest-tmp-' + [guid]::NewGuid().ToString('N')
+.venv\Scripts\python.exe -m pytest -c pytest.ini -q --basetemp $pytestTemp
+```
+
+An explicit command-line `--basetemp` overrides the configured default. Pytest requires its parent directory to exist; the example uses a flat name directly under the root to avoid missing-parent errors. Do not point it at the repository root, `artifacts` itself, or an existing model/data folder. Keep test sessions sequential when using the shared default. There is no need to run the whole project as Administrator or modify global temp-folder permissions for this workaround.
+
+Use `-c pytest.ini` for focused tests as well as the full suite. Selecting a file under `detection/tests` can otherwise make pytest use the package's separate `pyproject.toml`, bypassing this root configuration.
+
 ## Keep a reproducible team record
 
 After a successful run, save these next to your reports, under ignored `artifacts/`:

@@ -124,8 +124,8 @@ Only the neural branch is exported. Inspect the manifest for CPU parity and actu
 Run the [root checks](../README.md#check-a-team-change) after source changes. Focused detector checks include:
 
 ```bash
-.venv/bin/python -m pytest detection/tests/test_data.py detection/tests/test_authorizations.py -q
-.venv/bin/python -m pytest detection/tests/test_pipeline.py detection/tests/test_simulation.py -q
+.venv/bin/python -m pytest -c pytest.ini detection/tests/test_data.py detection/tests/test_authorizations.py -q
+.venv/bin/python -m pytest -c pytest.ini detection/tests/test_pipeline.py detection/tests/test_simulation.py -q
 ```
 
 | Problem | Next step |

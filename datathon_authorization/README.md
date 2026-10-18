@@ -105,7 +105,7 @@ Replay response/evaluation files can be overwritten; choose new paths for a run 
 
 ```bash
 .venv/bin/python -m pytest -q
-.venv/bin/python -m pytest datathon_authorization/tests detection/tests/test_replay.py -q
+.venv/bin/python -m pytest -c pytest.ini datathon_authorization/tests detection/tests/test_replay.py -q
 ```
 
 Tests generate temporary data, train a real model, and compare HTTP responses to offline predictions. They check cross-site state, unknown events, input validation, replay, duplicate/late requests, and independent app instances. A running Uvicorn server is not needed for automated tests.

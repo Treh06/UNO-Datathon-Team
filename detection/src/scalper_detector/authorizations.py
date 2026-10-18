@@ -65,10 +65,7 @@ def _records_frame(rows: list[dict]) -> pd.DataFrame:
     """Build object-typed columns so pandas does not infer dates row by row."""
     columns = dict.fromkeys(column for row in rows for column in row)
     return pd.DataFrame(
-        {
-            column: pd.Series([row.get(column) for row in rows], dtype=object)
-            for column in columns
-        }
+        {column: pd.Series([row.get(column) for row in rows], dtype=object) for column in columns}
     )
 
 
@@ -122,9 +119,7 @@ def _authorization_fields(payload: dict) -> dict:
     fraction = re.search(r"[Tt ]\d{2}:\d{2}:\d{2}[.,](\d+)", timestamp_value)
     normalized_timestamp = timestamp.isoformat(timespec="seconds").replace("+00:00", "Z")
     if fraction and fraction.group(1).rstrip("0"):
-        normalized_timestamp = (
-            normalized_timestamp[:-1] + "." + fraction.group(1).rstrip("0") + "Z"
-        )
+        normalized_timestamp = normalized_timestamp[:-1] + "." + fraction.group(1).rstrip("0") + "Z"
     order.update(timestamp=normalized_timestamp, category="tickets")
     for source, target in _OPTIONAL_TOKENS.items():
         if source in payload and payload[source] is not None:

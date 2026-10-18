@@ -43,10 +43,14 @@ Run each native check separately:
 .venv\Scripts\python.exe -m scalper_detector --help
 .venv\Scripts\python.exe -m ruff check .
 .venv\Scripts\python.exe -m ruff format --check .
-.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m pytest -c pytest.ini -q
 ```
 
 Tests train temporary models; they need no saved dataset or running API. They do not create the presentation model. ONNX tests can skip without deployment packages.
+
+The root `pytest.ini` places pytest fixture files under `.pytest-tmp` and its cache under `.pytest-cache`, avoiding permission problems in shared Windows temp/cache folders. Both are ignored by Git and work before `artifacts/` exists. The fixture directory is disposable and pytest clears it before a run; keep datasets/models elsewhere. Run one test session at a time. For concurrent sessions, give each a different dedicated `--basetemp` path. See [temporary-folder recovery](../environment.md#pytest-temporary-folder-permissions).
+
+Keep `-c pytest.ini` when selecting individual test files too. Otherwise pytest may discover `detection/pyproject.toml` and miss the root scratch-folder configuration.
 
 ## Run and repeat
 
