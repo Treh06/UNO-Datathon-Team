@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from scalper_detector.authorizations import (
+    _records_frame,
     authorization_to_order,
     read_authorizations,
     read_ground_truth,
@@ -226,7 +227,7 @@ def test_readers_join_exact_ids_only_on_explicit_request(payload, tmp_path):
 
 
 def test_reader_normalizes_timezone_offsets_before_dataframe_inference(payload, tmp_path):
-    first = dict(payload, event_ts="2026-11-05T12:00:00-01:00")
+    first = dict(payload, event_ts="2026-11-05T12:00:00.123456789-01:00")
     second = dict(payload, txn_id="000002", event_ts="2026-11-05T12:30:00Z")
     requests = _write_jsonl(tmp_path / "requests.jsonl", [first, second])
 
@@ -234,8 +235,17 @@ def test_reader_normalizes_timezone_offsets_before_dataframe_inference(payload, 
 
     assert actual.timestamp.tolist() == [
         pd.Timestamp("2026-11-05T12:30:00Z"),
-        pd.Timestamp("2026-11-05T13:00:00Z"),
+        pd.Timestamp("2026-11-05T13:00:00.123456789Z"),
     ]
+
+
+def test_record_frame_keeps_timestamp_objects_out_of_datetime_inference():
+    timestamp = pd.Timestamp("2026-11-05T12:00:00Z")
+
+    actual = _records_frame([{"timestamp": timestamp}])
+
+    assert actual["timestamp"].dtype == object
+    assert actual.iloc[0]["timestamp"] == timestamp
 
 
 def test_labels_and_offline_metadata_cannot_change_features(payload, tmp_path):

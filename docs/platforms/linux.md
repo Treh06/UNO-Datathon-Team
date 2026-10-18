@@ -112,5 +112,31 @@ against it at a time. Live output is saved under `artifacts/live_demo/`.
 This exports and checks the neural branch on CPU. It does not validate IBM Telum
 execution. See the [deployment guide](../../detection/docs/telum_deployment.md).
 
+## Training segmentation fault
+
+If training exits with `Segmentation fault (core dumped)` before printing an
+epoch, first try a separate environment with freshly installed Linux CPU wheels.
+This avoids changing or deleting the existing `.venv` and helps rule out mixed
+system/pip packages or a damaged native wheel:
+
+```bash
+python3 -m venv .venv-clean
+.venv-clean/bin/python -m pip install --upgrade pip
+.venv-clean/bin/python -m pip install --no-cache-dir 'torch>=2.6,<3' \
+  --index-url https://download.pytorch.org/whl/cpu
+.venv-clean/bin/python -m pip install --no-cache-dir -e './detection[dev,api]'
+.venv-clean/bin/python -m pip check
+.venv-clean/bin/python -c 'import sys, numpy, pandas, torch; print(sys.version); print("numpy", numpy.__version__, "pandas", pandas.__version__, "torch", torch.__version__, "torch threads", torch.get_num_threads())'
+PYTHONFAULTHANDLER=1 .venv-clean/bin/scalper-detector train-simulation \
+  --simulation generation_and_testing/data/simulation \
+  --output artifacts/ticket_model_clean \
+  --epochs 20
+```
+
+Use the exact same Python interpreter to install and run the command. If the
+clean environment still crashes, retain the complete fault-handler output and
+the printed package versions; the traceback location distinguishes an input
+reader failure from a native model-training failure.
+
 Return to the [project overview](../../README.md) for data contracts, metrics, and
 component documentation.

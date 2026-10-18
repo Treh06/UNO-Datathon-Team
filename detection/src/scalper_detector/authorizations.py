@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from numbers import Real
 from pathlib import Path
@@ -61,6 +61,17 @@ def _invalid_constant(value: str) -> None:
     raise ValueError(f"Nonfinite JSON value {value!r} is not permitted.")
 
 
+def _records_frame(rows: list[dict]) -> pd.DataFrame:
+    """Build object-typed columns so pandas does not infer dates row by row."""
+    columns = dict.fromkeys(column for row in rows for column in row)
+    return pd.DataFrame(
+        {
+            column: pd.Series([row.get(column) for row in rows], dtype=object)
+            for column in columns
+        }
+    )
+
+
 def _read_objects(path: str | Path) -> Iterator[tuple[int, dict]]:
     location = Path(path)
     with location.open(encoding="utf-8") as handle:
@@ -103,15 +114,18 @@ def _authorization_fields(payload: dict) -> dict:
         parsed = datetime.fromisoformat(timestamp_value.replace("Z", "+00:00"))
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             raise ValueError("missing timezone")
-        timestamp = pd.Timestamp(timestamp_value).tz_convert("UTC")
+        timestamp = parsed.astimezone(timezone.utc)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("event_ts must be a valid timezone-aware ISO-8601 timestamp.") from exc
 
     order = {target: _token(payload, source) for source, target in _SOURCE_TOKENS.items()}
-    # Keep timestamps as normalized strings until the full column is parsed by
-    # validate_events; constructing a DataFrame from Timestamp objects invokes
-    # pandas' per-row datetime inference, which crashes with some Linux wheels.
-    order.update(timestamp=timestamp.isoformat(), category="tickets")
+    fraction = re.search(r"[Tt ]\d{2}:\d{2}:\d{2}[.,](\d+)", timestamp_value)
+    normalized_timestamp = timestamp.isoformat(timespec="seconds").replace("+00:00", "Z")
+    if fraction and fraction.group(1).rstrip("0"):
+        normalized_timestamp = (
+            normalized_timestamp[:-1] + "." + fraction.group(1).rstrip("0") + "Z"
+        )
+    order.update(timestamp=normalized_timestamp, category="tickets")
     for source, target in _OPTIONAL_TOKENS.items():
         if source in payload and payload[source] is not None:
             order[target] = _token(payload, source, optional=True)
@@ -144,7 +158,9 @@ def _authorization_fields(payload: dict) -> dict:
         if not isinstance(issue_value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", issue_value):
             raise ValueError("card_issue_date must be an ISO date in YYYY-MM-DD format.")
         try:
-            issued = pd.Timestamp(date.fromisoformat(issue_value), tz="UTC")
+            issued = datetime.combine(
+                date.fromisoformat(issue_value), datetime.min.time(), tzinfo=timezone.utc
+            )
         except (ValueError, TypeError, OverflowError) as exc:
             raise ValueError("card_issue_date must be a valid ISO date.") from exc
         if issued > timestamp:
@@ -168,7 +184,7 @@ def authorization_to_order(payload: dict) -> dict:
     ISO ``card_issue_date`` is interpreted as midnight UTC when computing
     elapsed card-age days. Unknown source fields are ignored, not features.
     """
-    return validate_events(pd.DataFrame([_authorization_fields(payload)])).iloc[0].to_dict()
+    return validate_events(_records_frame([_authorization_fields(payload)])).iloc[0].to_dict()
 
 
 def read_ground_truth(path: str | Path) -> pd.DataFrame:
@@ -221,7 +237,7 @@ def read_authorizations(
         rows.append(row)
     if not rows:
         raise ValueError(f"Authorization request file is empty: {requests_path}")
-    result = validate_events(pd.DataFrame(rows))
+    result = validate_events(_records_frame(rows))
     if ground_truth_path is not None:
         truth = read_ground_truth(ground_truth_path)
         truth_ids = set(truth.txn_id)
