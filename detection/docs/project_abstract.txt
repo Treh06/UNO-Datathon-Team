@@ -1,0 +1,64 @@
+Payment-Side Scalper Detection on IBM Telum
+Project abstract for the IBM Datathon
+Abstract
+Scalpers and bots buy high-demand goods such as event tickets, limited sneakers, and award seats in bulk, then resell them at inflated prices. Merchants struggle to stop them because each merchant sees only its own traffic. Every one of those orders, however, passes through a payment processor or card-issuing bank, and those institutions already run real-time fraud scoring on IBM mainframes.
+We propose a scalper-likelihood scoring service that extends this existing pipeline. Using only payment-side signals, the service scores each order in-line on the IBM Telum on-chip AI accelerator and returns a risk score, a confidence tier, and human-readable reason codes. The merchant, who owns the customer relationship, decides what to do with the result: allow, add friction, cap quantity, or cancel and refund.
+Problem
+•	Scalping is hard to detect from a single merchant's storefront, especially during drop-day bursts.
+•	Merchants lack cross-merchant visibility into card clusters, linked accounts, and repeated bulk-buy behavior.
+•	Blunt rejection harms legitimate buyers such as parents buying for groups or corporate purchasers.
+Proposed solution
+A vendor-provided service with two delivery modes:
+1.	Real-time risk score. Returned alongside the authorization flow or through a pre-checkout API call, in milliseconds, so merchants can apply tiered responses before the order is confirmed.
+2.	Post-purchase report. A ranked list of flagged orders, each with score, confidence tier, and top reason codes, so merchants can review or cancel before shipment. This covers patterns that only become clear once a cluster of orders is visible.
+The vendor supplies evidence. The merchant makes the final decision.
+Why a mainframe and Telum
+•	In-line inference: The on-chip accelerator is designed to score inside the transaction path, avoiding round trips to an external service.
+•	Data stays on platform: Card and identity data are scored where they are already processed.
+•	Burst resilience: Drop events create sharp spikes, and mainframe throughput and availability suit them.
+•	Natural fit: Scalper scoring becomes one more model in an existing in-line fraud pipeline.
+The real-time mode is what justifies the accelerator. A nightly batch report alone could run on any server.
+Target users
+•	Primary: Payment processors and card networks that run mainframes and serve many merchants.
+•	Secondary: Large card-issuing banks, and reservation platforms facing seat-hoarding bots.
+•	Customers of the service: Ticketing, retail, and travel merchants.
+Technical approach
+1.	Train models with standard Python tooling (PyTorch or TensorFlow, plus a tree-based model for tabular features).
+2.	Export the neural model to ONNX and compile it with the IBM Z Deep Learning Compiler (zDLC) for the Telum accelerator, subject to confirming supported operators on our chip generation.
+3.	Score orders in a simulated transaction path, looking up velocity counters and precomputed graph features at order time.
+4.	Combine neural and tree-model scores in an ensemble, then map the result to a tier and reason codes.
+5.	Benchmark per-order latency and sustained throughput on the real chip, compared against CPU-only.
+Features in priority order
+Must have (core demo)
+1.	Real-time scalper-likelihood score. A per-order score computed in-line, with latency measured on Telum hardware.
+2.	Velocity features. Purchases per card, BIN range, and card cluster over short windows.
+3.	Reason codes and confidence tiers. Each score ships with explainable evidence, for example "12 cards linked to one shipping address."
+4.	Tiered merchant actions. Allow, step-up verification, quantity cap or throttle, and cancel or refund, with the merchant setting the policy.
+5.	Latency and throughput benchmark. Measured results on the real chip, including a simulated drop-day burst. This is our strongest differentiator.
+Should have (strengthens the pitch)
+6.	Linked-entity graph features. Cards sharing billing or shipping addresses, emails, or device IDs, precomputed in batch and looked up at order time.
+7.	Cross-merchant behavior features. The same card or cluster buying across many merchants or events in a short window.
+8.	Post-purchase ranked report. A flagged-order list for review before shipment.
+9.	Precision/recall and false-positive analysis. Threshold selection shown explicitly, with the legitimate bulk-buyer tradeoff explained.
+10.	Ensemble model. A neural model plus a tree model with combined scoring.
+Nice to have (if time allows)
+11.	Shipping and card-type signals. Freight forwarders, mail drops, prepaid or virtual cards, newly issued cards used immediately.
+12.	Order timing patterns. Burst arrival at the exact release second, uniform basket sizes.
+13.	Drift monitoring and retraining plan. A story for how the model adapts as scalpers change tactics.
+14.	Fairness review. Audit features for proxies of protected groups and describe a merchant appeal path.
+15.	Merchant dashboard. A simple view of flagged orders, scores, and reason codes.
+Data and labeling
+No dataset provides a ready-made "scalper" label. We will state clearly which approach we use and its limits: proxy labels (such as chargebacks or known resale-linked clusters), synthetic injection of bot-like bulk-buy behavior into realistic transaction data, or an unsupervised anomaly approach. Final feature choices depend on the fields the datathon dataset actually contains.
+Risks and mitigations
+•	Toolchain setup. Confirm early that a simple ONNX model runs end to end on the chip before building anything elaborate.
+•	Unsupported operators. Some operations fall back to the CPU, which affects the latency story. Test operator support first.
+•	Legitimate bulk buyers. Use scores and reason codes instead of binary labels.
+•	Data-use rules. Cross-merchant signals raise PCI DSS, network-rule, and privacy (GDPR/CCPA) questions, so the pitch includes a data-sharing and governance story.
+•	Payment-side limits. Processors typically do not see checkout clickstream, so we rely on payment-side features, with merchant-supplied behavioral signals as an optional extension.
+Expected outcomes
+•	A working prototype scoring simulated orders in-line on Telum hardware.
+•	Measured latency and throughput under a simulated drop event.
+•	An explainable output format (score, tier, reason codes) that merchants can act on.
+•	A clear deployment story for mainframe-based payment vendors.
+One-line pitch
+Scalpers hit merchants, but every order passes through a payment processor. We add a scalper-detection score to the in-line fraud pipeline those processors already run on mainframes, so merchants get a millisecond risk score and the evidence to decide what to do.

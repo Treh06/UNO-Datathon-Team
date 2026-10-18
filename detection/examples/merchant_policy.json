@@ -1,0 +1,14 @@
+{
+  "default": {
+    "allow_below": 0.35,
+    "step_up_below": 0.65,
+    "cap_below": 0.85
+  },
+  "merchants": {
+    "merchant_group_sales": {
+      "allow_below": 0.55,
+      "step_up_below": 0.8,
+      "cap_below": 0.95
+    }
+  }
+}
