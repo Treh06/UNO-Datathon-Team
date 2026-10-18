@@ -225,6 +225,19 @@ def test_readers_join_exact_ids_only_on_explicit_request(payload, tmp_path):
     assert truth.txn_id.tolist() == ["000001", "000002"]
 
 
+def test_reader_normalizes_timezone_offsets_before_dataframe_inference(payload, tmp_path):
+    first = dict(payload, event_ts="2026-11-05T12:00:00-01:00")
+    second = dict(payload, txn_id="000002", event_ts="2026-11-05T12:30:00Z")
+    requests = _write_jsonl(tmp_path / "requests.jsonl", [first, second])
+
+    actual = read_authorizations(requests)
+
+    assert actual.timestamp.tolist() == [
+        pd.Timestamp("2026-11-05T12:30:00Z"),
+        pd.Timestamp("2026-11-05T13:00:00Z"),
+    ]
+
+
 def test_labels_and_offline_metadata_cannot_change_features(payload, tmp_path):
     requests = _write_jsonl(tmp_path / "requests.jsonl", [payload])
     truth_path = _write_jsonl(tmp_path / "truth.jsonl", [_truth()])

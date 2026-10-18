@@ -108,7 +108,10 @@ def _authorization_fields(payload: dict) -> dict:
         raise ValueError("event_ts must be a valid timezone-aware ISO-8601 timestamp.") from exc
 
     order = {target: _token(payload, source) for source, target in _SOURCE_TOKENS.items()}
-    order.update(timestamp=timestamp, category="tickets")
+    # Keep timestamps as normalized strings until the full column is parsed by
+    # validate_events; constructing a DataFrame from Timestamp objects invokes
+    # pandas' per-row datetime inference, which crashes with some Linux wheels.
+    order.update(timestamp=timestamp.isoformat(), category="tickets")
     for source, target in _OPTIONAL_TOKENS.items():
         if source in payload and payload[source] is not None:
             order[target] = _token(payload, source, optional=True)
