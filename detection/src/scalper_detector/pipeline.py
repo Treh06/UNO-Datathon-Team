@@ -6,7 +6,7 @@ import copy
 import json
 import math
 import random
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -29,6 +29,7 @@ from .data import (
 from .decision import MerchantPolicy, decision_fields
 from .metrics import binary_metrics, fit_temperature, select_threshold, sigmoid
 from .model import ScalperLSTM
+from .runtime import configure_torch_runtime, safe_mode_enabled
 from .tree import PaymentForest
 
 if TYPE_CHECKING:
@@ -257,10 +258,12 @@ def train_model(
     """
     config = config or TrainConfig()
     config.validate()
+    config = replace(config, threads=configure_torch_runtime(config.threads))
+    if verbose:
+        print("Preparing causal features and model partitions...", flush=True)
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
-    torch.set_num_threads(config.threads)
     if partitions is None:
         population = validate_events(frame, require_labels=True)
         # BINs describe population activity rather than buyer identities. Compute
@@ -288,11 +291,21 @@ def train_model(
         "dropout": config.dropout,
     }
     model = ScalperLSTM(**model_config)
+    if verbose:
+        print(
+            f"Training neural branch: CPU, {config.threads} thread(s), "
+            f"{model.lstm_backend} LSTM, batch size {config.batch_size}.",
+            flush=True,
+        )
     best_epoch, history = _fit_neural_model(model, datasets, config, verbose=verbose)
     train_labels = ordered["train"][LABEL].to_numpy()
+    if verbose:
+        print("Training random forest branch...", flush=True)
     forest = PaymentForest.fit(
         features["train"], train_labels, seed=config.seed, threads=config.threads
     )
+    if verbose:
+        print("Calibrating ensemble and evaluating held-out orders...", flush=True)
     cal_logits, cal_labels = _logits(model, datasets["calibration"], config.batch_size)
     cal_tree = forest.predict_proba(features["calibration"])
     metadata = {
@@ -311,6 +324,7 @@ def train_model(
             "numpy": np.__version__,
             "pandas": pd.__version__,
         },
+        "runtime": {"safe_mode": safe_mode_enabled(), "lstm_backend": model.lstm_backend},
     }
     _, _, cal_probabilities = _combine(cal_logits, cal_tree, metadata)
     metadata["ensemble_temperature"] = fit_temperature(_logit(cal_probabilities), cal_labels)
@@ -435,7 +449,7 @@ class ScalperDetector:
             raise ValueError(
                 "The saved model's ticket feature schema differs from this code. Retrain with scalper-detector demo."
             )
-        torch.set_num_threads(metadata["training_config"]["threads"])
+        configure_torch_runtime(metadata["training_config"]["threads"])
         model = ScalperLSTM(**metadata["model_config"])
         model.load_state_dict(
             torch.load(directory / "model.pt", map_location="cpu", weights_only=True)

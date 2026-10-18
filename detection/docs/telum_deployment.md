@@ -2,6 +2,20 @@
 
 Start with a trained model from the [repository quick start](../../README.md) or your own labeled ticket orders. Run commands from the repository root. No transaction dataset, pretrained model, compiled shared library, or hardware measurement is bundled with the repository. The compiler command below is a template for target-environment work.
 
+## Training on LinuxONE
+
+For a LinuxONE server reporting `s390x`, follow the
+[LinuxONE setup and crash recovery guide](../../docs/platforms/linuxone.md)
+before exporting. It includes a conservative CPU training command and isolated
+native runtime probes for segmentation faults. Existing Linux `x86_64`, Windows,
+and Apple silicon validation does not validate LinuxONE; native `s390x`
+training remains unverified.
+
+CPU training is distinct from NNPA inference. IBM documents that training on
+its NNPA device is unsupported and recommends CPU training. Preserve the
+framework versions supplied with an IBM accelerated container rather than
+replacing its PyTorch installation. [IBM training and container guidance](https://github.com/IBM/ibmz-accelerated-for-pytorch#training-workloads).
+
 ## Export the trained neural branch
 
 ```bash

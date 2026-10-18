@@ -23,13 +23,14 @@ flowchart LR
 
 ## Quick start
 
-Use **Python 3.13** for a consistent development setup; the package requires Python 3.10 or later. Run commands from the repository root. No generated dataset or pretrained model is committed.
+Use **Python 3.13** for the standard development setup; the package requires Python 3.10 or later. IBM LinuxONE users should follow the architecture-specific guide below, which includes Python 3.11/3.12 installation options. Run commands from the repository root. No generated dataset or pretrained model is committed.
 
 Choose the guide for your computer. Each includes installation, checks, data generation, training, and the API/demo commands in the correct shell:
 
 | Platform | Setup and run guide | Shell |
 | --- | --- | --- |
 | Linux | [Linux guide](docs/platforms/linux.md) | Bash |
+| IBM LinuxONE / IBM Z (`s390x`) | [LinuxONE guide and crash recovery](docs/platforms/linuxone.md) | Bash |
 | macOS (Apple silicon) | [macOS guide](docs/platforms/macos.md) | zsh or Bash |
 | Windows | [Windows guide](docs/platforms/windows.md) | PowerShell |
 
@@ -47,6 +48,8 @@ The application source at commit `33fbd23` was checked on all three platforms:
 | macOS, Apple silicon, with ONNX packages | 3.13.2 | 441 passed locally |
 
 Linux and Windows results are from [GitHub Actions run 39079987870](https://github.com/Treh06/UNO-Datathon-Team/actions/runs/39079987870). macOS was checked locally; the newly added macOS CI job awaits its first remote run after these changes are pushed.
+
+Those results cover the listed CPU architectures. **IBM LinuxONE (`s390x`) has not been verified on native hardware.** Its conservative CPU profile and crash diagnostics are documented in the [LinuxONE guide](docs/platforms/linuxone.md); a Linux `x86_64` CI pass does not validate LinuxONE.
 
 The walkthrough below uses Linux/macOS shell syntax. The Windows guide provides complete PowerShell commands.
 
@@ -182,6 +185,7 @@ Actor IDs, tactic names, and labels never become online features. Missing event 
 | --- | --- |
 | Missing import or command | Install from the repository root using the shared `.venv/`. |
 | An environment copied from another operating system fails | Create a new `.venv` with the destination computer's Python and reinstall the project using its [platform guide](#quick-start). |
+| Segmentation fault / core dump on IBM LinuxONE | Use the [LinuxONE conservative training command and isolated diagnostics](docs/platforms/linuxone.md). Native dependency failures require the report from the server. |
 | Model cannot load at API startup | Train first or point `SCALPER_MODEL_DIR` to a complete, compatible model directory. |
 | Generator output is not empty | Reuse the dataset or choose a new output path. |
 | HTTP 409 during replay | Restart for a fresh run; preserve global order and avoid mixing independent streams. |

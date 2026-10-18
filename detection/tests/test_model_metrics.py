@@ -110,9 +110,10 @@ def test_invalid_metric_inputs_fail(labels, probabilities):
         select_threshold(labels, probabilities)
 
 
-def test_lstm_ignores_right_padding_and_preserves_batch_order():
+@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+def test_lstm_ignores_right_padding_and_preserves_batch_order(lstm_backend):
     torch.manual_seed(7)
-    model = ScalperLSTM(input_size=3, hidden_size=8, num_layers=1).eval()
+    model = ScalperLSTM(input_size=3, hidden_size=8, num_layers=1, lstm_backend=lstm_backend).eval()
     features = torch.randn(3, 6, 3)
     lengths = torch.tensor([2, 6, 4])
     modified = features.clone()
@@ -132,13 +133,99 @@ def test_lstm_ignores_right_padding_and_preserves_batch_order():
     torch.testing.assert_close(logits, individual)
 
 
-def test_lstm_gradients_exclude_padding():
-    model = ScalperLSTM(input_size=2, hidden_size=4, num_layers=1, dropout=0.0)
+@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+def test_lstm_gradients_exclude_padding(lstm_backend):
+    model = ScalperLSTM(
+        input_size=2, hidden_size=4, num_layers=1, dropout=0.0, lstm_backend=lstm_backend
+    )
     features = torch.randn(2, 4, 2, requires_grad=True)
     model(features, torch.tensor([1, 4])).sum().backward()
     assert features.grad is not None
     assert torch.count_nonzero(features.grad[0, 1:]).item() == 0
     assert torch.count_nonzero(features.grad[0, :1]).item() > 0
+
+
+@pytest.mark.parametrize("num_layers", [1, 3])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_unfused_lstm_matches_native_logits_and_gradients(num_layers, dtype):
+    torch.manual_seed(19)
+    kwargs = {"input_size": 3, "hidden_size": 5, "num_layers": num_layers, "dropout": 0.0}
+    native = ScalperLSTM(**kwargs, lstm_backend="native").to(dtype=dtype)
+    unfused = ScalperLSTM(**kwargs, lstm_backend="unfused").to(dtype=dtype)
+    unfused.load_state_dict(native.state_dict(), strict=True)
+    lengths = torch.tensor([3, 7, 1, 5])
+    native_features = torch.randn(4, 9, 3, dtype=dtype, requires_grad=True)
+    unfused_features = native_features.detach().clone().requires_grad_()
+
+    native_logits = native(native_features, lengths)
+    unfused_logits = unfused(unfused_features, lengths)
+    tolerances = (
+        {"rtol": 1e-5, "atol": 1e-7}
+        if dtype == torch.float32
+        else {
+            "rtol": 1e-8,
+            "atol": 1e-10,
+        }
+    )
+    torch.testing.assert_close(unfused_logits, native_logits, **tolerances)
+    coefficients = torch.tensor([0.5, -1.0, 0.2, 1.5], dtype=dtype)
+    (native_logits * coefficients).sum().backward()
+    (unfused_logits * coefficients).sum().backward()
+
+    torch.testing.assert_close(unfused_features.grad, native_features.grad, **tolerances)
+    for index, length in enumerate(lengths):
+        assert torch.count_nonzero(unfused_features.grad[index, length:]).item() == 0
+    native_parameters = dict(native.named_parameters())
+    for name, parameter in unfused.named_parameters():
+        assert parameter.grad is not None
+        torch.testing.assert_close(parameter.grad, native_parameters[name].grad, **tolerances)
+
+
+def test_unfused_lstm_never_calls_native_forward(monkeypatch):
+    model = ScalperLSTM(input_size=3, hidden_size=5, num_layers=2, lstm_backend="unfused")
+
+    def reject_native_forward(*args, **kwargs):
+        pytest.fail("unfused inference must not call nn.LSTM.forward")
+
+    monkeypatch.setattr(model.lstm, "forward", reject_native_forward)
+    features = torch.randn(2, 4, 3, requires_grad=True)
+    logits = model(features, torch.tensor([4, 2]))
+    logits.sum().backward()
+    assert logits.shape == (2,)
+    assert model.lstm.weight_ih_l0.grad is not None
+
+
+def test_unfused_lstm_preserves_checkpoint_keys():
+    native = ScalperLSTM(input_size=3, hidden_size=5, num_layers=2, lstm_backend="native")
+    unfused = ScalperLSTM(input_size=3, hidden_size=5, num_layers=2, lstm_backend="unfused")
+    expected_keys = {
+        f"lstm.{name}_l{layer}"
+        for layer in range(2)
+        for name in ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
+    } | {"classifier.weight", "classifier.bias"}
+    assert set(native.state_dict()) == set(unfused.state_dict()) == expected_keys
+    unfused.load_state_dict(native.state_dict(), strict=True)
+    native.load_state_dict(unfused.state_dict(), strict=True)
+
+
+def test_unfused_lstm_applies_interlayer_dropout_only_during_training():
+    torch.manual_seed(23)
+    model = ScalperLSTM(
+        input_size=3, hidden_size=8, num_layers=2, dropout=0.7, lstm_backend="unfused"
+    )
+    # Isolate recurrent dropout from the classifier's final dropout.
+    model.dropout = torch.nn.Identity()
+    features, lengths = torch.randn(4, 6, 3), torch.tensor([6, 2, 4, 1])
+    first, second = model(features, lengths), model(features, lengths)
+    assert not torch.equal(first, second)
+    model.eval()
+    torch.testing.assert_close(model(features, lengths), model(features, lengths), rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("safe_mode,expected", [(False, "native"), (True, "unfused")])
+def test_lstm_backend_defaults_follow_runtime_safe_mode(monkeypatch, safe_mode, expected):
+    monkeypatch.setattr("scalper_detector.model.safe_mode_enabled", lambda: safe_mode)
+    assert ScalperLSTM(input_size=2).lstm_backend == expected
 
 
 @pytest.mark.parametrize(
@@ -149,6 +236,8 @@ def test_lstm_gradients_exclude_padding():
         {"input_size": 2, "num_layers": 0},
         {"input_size": 2, "dropout": np.nan},
         {"input_size": 2, "dropout": 1.0},
+        {"input_size": 2, "lstm_backend": "unsupported"},
+        {"input_size": 2, "lstm_backend": True},
     ],
 )
 def test_invalid_model_configuration_fails(kwargs):

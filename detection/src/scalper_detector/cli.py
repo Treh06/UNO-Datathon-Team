@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +13,7 @@ from .benchmark import benchmark_orders
 from .data import LABEL, TEXT_COLUMNS, read_events, validate_events
 from .decision import MerchantPolicy
 from .pipeline import ScalperDetector, TrainConfig, train_model
+from .runtime import configure_environment
 from .synthetic import generate_synthetic_data, generate_ticket_scenarios
 
 
@@ -107,6 +109,11 @@ def _build_parser() -> argparse.ArgumentParser:
     """Describe CLI commands and options without loading data or model files."""
     parser = argparse.ArgumentParser(
         description="Ticket-scalper detection using payment activity across ticketing sites."
+    )
+    parser.add_argument(
+        "--safe-mode",
+        action="store_true",
+        help="Use one CPU thread and an unfused LSTM (automatic on LinuxONE/s390x)",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     demo = commands.add_parser(
@@ -248,6 +255,9 @@ def main(argv: list[str] | None = None) -> None:
     """Run the requested detector command and report actionable CLI errors."""
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.safe_mode:
+        os.environ["SCALPER_SAFE_MODE"] = "1"
+        configure_environment()
     try:
         if args.command == "train-simulation":
             from .simulation import train_simulation

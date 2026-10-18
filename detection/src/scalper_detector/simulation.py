@@ -239,6 +239,8 @@ def train_simulation(
     """Train without redistributing the simulator's chronological test/tactics."""
     config = config or TrainConfig()
     config.validate()
+    if verbose:
+        print(f"Loading and validating simulation: {simulation_dir}", flush=True)
     source, truths, manifest = load_simulation_splits(simulation_dir)
     divided = _validation_partitions(source["validation"], config.seed)
     partitions = {

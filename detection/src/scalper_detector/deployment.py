@@ -15,15 +15,16 @@ class _PaddedExportLSTM(nn.Module):
 
     def __init__(self, model: nn.Module):
         super().__init__()
-        self.lstm = model.lstm
-        self.dropout = model.dropout
-        self.classifier = model.classifier
+        self.model = model
 
     def forward(self, features: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
-        outputs, _ = self.lstm(features)
-        indices = (lengths - 1).reshape(-1, 1, 1).expand(-1, 1, outputs.shape[2])
-        last_valid = outputs.gather(1, indices).squeeze(1)
-        return self.classifier(self.dropout(last_valid)).squeeze(-1)
+        if self.model.lstm_backend == "unfused":
+            last_valid = self.model._unfused_hidden(features, lengths)
+        else:
+            outputs, _ = self.model.lstm(features)
+            indices = (lengths - 1).reshape(-1, 1, 1).expand(-1, 1, outputs.shape[2])
+            last_valid = outputs.gather(1, indices).squeeze(1)
+        return self.model.classifier(self.model.dropout(last_valid)).squeeze(-1)
 
 
 def export_onnx(model_dir: str | Path, output_path: str | Path) -> dict:
@@ -114,6 +115,7 @@ def export_onnx(model_dir: str | Path, output_path: str | Path) -> dict:
         "format_version": 1,
         "onnx_file": destination.name,
         "exported_branch": "neural_lstm_only",
+        "lstm_backend": model.lstm_backend,
         "detection_scope": detector.metadata.get("task", "ticket_scalping"),
         "output_semantics": "Uncalibrated neural logits, not final ensemble probabilities or merchant decisions",
         "opset": 17,

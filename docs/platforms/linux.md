@@ -1,5 +1,11 @@
 # Linux setup and run guide
 
+**IBM LinuxONE / IBM Z (`uname -m` reports `s390x`): start with the
+[LinuxONE guide](linuxone.md).** It provides the conservative training command,
+isolated crash diagnostics, and architecture-specific installation guidance.
+The generic CPU installation below and the Ubuntu CI results do not validate
+the native dependencies on `s390x`.
+
 Run these Bash commands from the repository root. Use Python 3.13 for the same
 version as the main CI job; the package requires Python 3.10 or later. The CI
 workflow exercises Ubuntu with Python 3.10 and 3.13. Other distributions and CPU

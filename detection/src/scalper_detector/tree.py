@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .runtime import effective_thread_count
+
 
 class PaymentForest:
     """Run a trained forest from portable tree arrays without scikit-learn."""
@@ -19,7 +21,11 @@ class PaymentForest:
         from sklearn.ensemble import RandomForestClassifier
 
         model = RandomForestClassifier(
-            n_estimators=48, max_depth=8, min_samples_leaf=8, n_jobs=threads, random_state=seed
+            n_estimators=48,
+            max_depth=8,
+            min_samples_leaf=8,
+            n_jobs=effective_thread_count(threads),
+            random_state=seed,
         )
         model.fit(features, labels)
         trees = []

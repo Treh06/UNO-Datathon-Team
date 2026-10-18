@@ -16,11 +16,12 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-import torch
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+from scalper_detector.runtime import configure_torch_runtime
 
 from .authorization import authorize
 from .models import AuthorizationResponse, Transaction
@@ -81,7 +82,7 @@ def create_app(*, model_dir: str | Path | None = None, detector: Any | None = No
             threads = loaded.metadata.get("training_config", {}).get("threads", 1)
             if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
                 raise ValueError("Saved training_config.threads must be a positive integer.")
-            torch.set_num_threads(threads)
+            configure_torch_runtime(threads)
             session = loaded.new_session()
         except Exception as exc:
             raise RuntimeError(

@@ -268,9 +268,10 @@ def test_invalid_decision_probability_rejected(probability):
         decision_fields(probability, 0.5, 0.5, {})
 
 
-def test_padded_export_wrapper_matches_packed_model_for_short_histories():
+@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+def test_padded_export_wrapper_matches_packed_model_for_short_histories(lstm_backend):
     torch.manual_seed(7)
-    model = ScalperLSTM(4, hidden_size=6, num_layers=2).eval()
+    model = ScalperLSTM(4, hidden_size=6, num_layers=2, lstm_backend=lstm_backend).eval()
     wrapper = _PaddedExportLSTM(model).eval()
     features = torch.randn(4, 7, 4)
     lengths = torch.tensor([1, 7, 3, 6])
@@ -280,12 +281,13 @@ def test_padded_export_wrapper_matches_packed_model_for_short_histories():
     torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
 
 
-def test_onnx_export_has_numeric_parity_and_target_manifest(tmp_path, monkeypatch):
+@pytest.mark.parametrize("lstm_backend", ["native", "unfused"])
+def test_onnx_export_has_numeric_parity_and_target_manifest(tmp_path, monkeypatch, lstm_backend):
     onnx = pytest.importorskip("onnx")
     pytest.importorskip("onnxruntime")
     from scalper_detector.pipeline import ScalperDetector
 
-    model = ScalperLSTM(4, hidden_size=6, num_layers=2).eval()
+    model = ScalperLSTM(4, hidden_size=6, num_layers=2, lstm_backend=lstm_backend).eval()
     detector = SimpleNamespace(
         model=model,
         metadata={
@@ -299,6 +301,7 @@ def test_onnx_export_has_numeric_parity_and_target_manifest(tmp_path, monkeypatc
     manifest = export_onnx(tmp_path, destination)
     onnx.checker.check_model(onnx.load(destination))
     assert manifest["exported_branch"] == "neural_lstm_only"
+    assert manifest["lstm_backend"] == lstm_backend
     assert manifest["onnx_checker_passed"] is True
     assert manifest["cpu_numerical_parity"]["verified"] is True
     assert len(manifest["cpu_numerical_parity"]["cases"]) == 3
